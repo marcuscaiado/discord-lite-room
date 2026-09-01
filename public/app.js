@@ -72,9 +72,13 @@ async function joinRoom() {
   if (brandTagEl) brandTagEl.textContent = `⚡ ${currentRoomId.toUpperCase()} ROOM`;
 
   try {
-    // Acquire local mic only on join - DO NOT start camera automatically!
+    // Acquire local mic with echo cancellation and noise suppression
     localStream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      },
       video: false
     });
   } catch (err) {
@@ -384,23 +388,22 @@ async function createPeerConnection(targetSocketId, isInitiator) {
   const pc = new RTCPeerConnection(rtcConfig);
   peers.set(targetSocketId, pc);
 
-  // Always establish both audio and video transceivers right away!
-  // This allows streaming screen immediately WITHOUT needing a camera turned on!
-  pc.addTransceiver('audio', { direction: 'sendrecv' });
-  pc.addTransceiver('video', { direction: 'sendrecv' });
+  // Attach local microphone audio track directly to the peer connection
+  if (localStream) {
+    const micTrack = localStream.getAudioTracks()[0];
+    if (micTrack) {
+      pc.addTrack(micTrack, localStream);
+    }
+  }
 
-  // Add all local tracks (mic/cam or screen)
-  const currentStream = localScreenStream || localStream;
-  if (currentStream) {
-    currentStream.getTracks().forEach((track) => {
-      const senders = pc.getSenders();
-      const sender = senders.find(s => s.track && s.track.kind === track.kind);
-      if (sender) {
-        sender.replaceTrack(track);
-      } else {
-        pc.addTrack(track, currentStream);
-      }
-    });
+  // Attach active video track (screen or camera)
+  const currentVideoTrack = (localScreenStream && localScreenStream.getVideoTracks()[0]) || 
+                            (localStream && !isCamOff && localStream.getVideoTracks()[0]);
+  if (currentVideoTrack) {
+    pc.addTrack(currentVideoTrack, localScreenStream || localStream);
+  } else {
+    // Ensure video transceiver is ready to receive
+    pc.addTransceiver('video', { direction: 'sendrecv' });
   }
 
   // ICE Candidates
@@ -421,7 +424,7 @@ async function createPeerConnection(targetSocketId, isInitiator) {
       remoteStreams.set(targetSocketId, remoteStream);
     }
     
-    // Remove existing track of same kind if replacing
+    // Replace track of same kind if already exists
     const existing = remoteStream.getTracks().find(t => t.kind === event.track.kind);
     if (existing) remoteStream.removeTrack(existing);
     remoteStream.addTrack(event.track);
@@ -439,13 +442,14 @@ async function createPeerConnection(targetSocketId, isInitiator) {
     const video = tile.querySelector('video');
     if (video) {
       video.srcObject = remoteStream;
-      video.style.display = 'block';
-      video.play().catch(() => {});
+      video.muted = false; // Remote video must NOT be muted so audio is heard!
+      video.play().catch(e => console.warn('Video/audio play required user gesture:', e));
     }
 
     event.track.onunmute = () => {
       if (video) {
         video.srcObject = remoteStream;
+        video.muted = false;
         video.play().catch(() => {});
       }
     };
