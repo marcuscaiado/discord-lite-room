@@ -340,7 +340,7 @@ body {
   height: 100%;
 }
 
-/* Universal Stream Only */
+/* Universal Stream Only: Hide all non-screen/avatar tiles and make the screen stream fill the stage */
 .video-grid.mode-stream-only {
   display: flex !important;
   flex-direction: column !important;
@@ -350,8 +350,12 @@ body {
   gap: 8px !important;
 }
 
-.video-grid.mode-stream-only .video-tile.screen-tile,
-.video-grid.mode-stream-only .video-tile:has(video:not([style*="display: none"])) {
+.video-grid.mode-stream-only .video-tile:not(.screen-tile) {
+  display: none !important;
+}
+
+.video-grid.mode-stream-only .video-tile.screen-tile {
+  display: flex !important;
   flex: 1 !important;
   width: 100% !important;
   height: 100% !important;
@@ -366,7 +370,7 @@ body {
 }
 
 /* VIEW MODE: Hide No-Cam */
-.video-grid.mode-hide-no-cam .video-tile.no-camera {
+.video-grid.mode-hide-no-cam .video-tile.no-camera:not(.screen-tile) {
   display: none !important;
 }
 

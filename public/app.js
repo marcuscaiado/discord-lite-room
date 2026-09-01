@@ -281,9 +281,16 @@ socket.on('room-joined', async ({ self, participants: existingList }) => {
   myId = self.id;
   updateParticipantList(existingList);
 
-  // Initiate peer connections to all existing members
+  // Initiate peer connections to all existing members and send initial SDP offer
   for (const p of existingList) {
-    await createPeerConnection(p.id, true);
+    const pc = await createPeerConnection(p.id, true);
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit('signal-offer', { targetId: p.id, sdp: offer });
+    } catch (e) {
+      console.warn('Initial offer error:', e);
+    }
   }
 });
 
