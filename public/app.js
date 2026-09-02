@@ -222,17 +222,21 @@ function createVideoTile(id, label, stream, isMutedAudio = false, isScreen = fal
   tile.appendChild(topActions);
   tile.appendChild(overlay);
 
+  const avatar = document.createElement('div');
+  avatar.className = 'avatar-placeholder';
+  avatar.textContent = label.charAt(0).toUpperCase();
+  tile.appendChild(avatar);
+
   // If no video track or disabled, show avatar circle and mark no-camera
   const hasVideo = stream && stream.getVideoTracks().some(t => t.enabled && t.readyState === 'live');
   if (!hasVideo && !isScreen) {
     tile.classList.add('no-camera');
-    const avatar = document.createElement('div');
-    avatar.className = 'avatar-placeholder';
-    avatar.textContent = label.charAt(0).toUpperCase();
-    tile.appendChild(avatar);
+    avatar.style.display = 'flex';
     video.style.display = 'none';
   } else {
     tile.classList.remove('no-camera');
+    avatar.style.display = 'none';
+    video.style.display = 'block';
   }
 
   return tile;
@@ -276,20 +280,70 @@ function togglePinStream(tileId) {
   updateGridLayout();
 }
 
-// 3. Socket & Signaling Handlers
+// 3. Dynamic Remote Stream UI Manager
+function refreshRemoteStreamTile(targetSocketId) {
+  const user = participants.get(targetSocketId);
+  const userName = user ? user.username : 'Friend';
+  const isScreen = user ? (user.isScreenSharing || false) : false;
+  const remoteStream = remoteStreams.get(targetSocketId);
+
+  let tile = document.getElementById(`tile-${targetSocketId}`);
+  if (!tile) {
+    tile = createVideoTile(`tile-${targetSocketId}`, userName, remoteStream, false, isScreen, targetSocketId);
+    videoGrid.appendChild(tile);
+  }
+
+  const video = tile.querySelector('video');
+  const avatar = tile.querySelector('.avatar-placeholder');
+  const hasVideoTrack = remoteStream && remoteStream.getVideoTracks().some(t => t.enabled && t.readyState === 'live');
+
+  if (isScreen || hasVideoTrack) {
+    tile.classList.remove('no-camera');
+    if (isScreen) {
+      tile.classList.add('screen-tile');
+      pinnedTileId = `tile-${targetSocketId}`;
+    }
+    if (avatar) avatar.style.display = 'none';
+    if (video) {
+      video.style.display = 'block';
+      if (remoteStream && video.srcObject !== remoteStream) {
+        video.srcObject = remoteStream;
+      }
+      video.muted = false;
+      video.play().catch(() => {
+        // Fallback: If browser blocks audio autoplay, mute video so visual stream renders immediately!
+        video.muted = true;
+        video.play().catch(() => {});
+      });
+    }
+  } else {
+    tile.classList.remove('screen-tile');
+    tile.classList.add('no-camera');
+    if (pinnedTileId === `tile-${targetSocketId}`) pinnedTileId = null;
+    if (avatar) avatar.style.display = 'flex';
+    if (video) video.style.display = 'none';
+  }
+
+  // Update header and Live Stream badge
+  const infoEl = tile.querySelector('.tile-user-info');
+  if (infoEl) {
+    const qualityBadge = isScreen ? `<span class="stream-hd-badge">✨ LIVE STREAM</span>` : '';
+    infoEl.innerHTML = `<span>${userName}</span> ${qualityBadge}`;
+  }
+
+  updateGridLayout();
+}
+
+// 4. Socket & Signaling Handlers
 socket.on('room-joined', async ({ self, participants: existingList }) => {
   myId = self.id;
   updateParticipantList(existingList);
 
-  // Initiate peer connections to all existing members and send initial SDP offer
+  // Connect to every existing room member
   for (const p of existingList) {
-    const pc = await createPeerConnection(p.id, true);
-    try {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socket.emit('signal-offer', { targetId: p.id, sdp: offer });
-    } catch (e) {
-      console.warn('Initial offer error:', e);
+    await createPeerConnection(p.id, true);
+    if (p.isScreenSharing) {
+      refreshRemoteStreamTile(p.id);
     }
   }
 });
@@ -298,6 +352,13 @@ socket.on('user-connected', async (user) => {
   participants.set(user.id, user);
   renderParticipants();
   appendSystemMessage(`${user.username} entered the room.`);
+
+  if (!peers.has(user.id)) {
+    await createPeerConnection(user.id, false);
+  }
+  if (user.isScreenSharing) {
+    refreshRemoteStreamTile(user.id);
+  }
 });
 
 socket.on('signal-offer', async ({ callerId, sdp }) => {
@@ -317,6 +378,9 @@ socket.on('signal-offer', async ({ callerId, sdp }) => {
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     socket.emit('signal-answer', { targetId: callerId, sdp: answer });
+
+    // Live update tile with incoming stream
+    refreshRemoteStreamTile(callerId);
   } catch (err) {
     console.error('Error handling signal-offer:', err);
   }
@@ -327,6 +391,7 @@ socket.on('signal-answer', async ({ callerId, sdp }) => {
   if (pc && pc.signalingState === 'have-local-offer') {
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      refreshRemoteStreamTile(callerId);
     } catch (err) {
       console.error('Error setting remote description from answer:', err);
     }
@@ -349,20 +414,28 @@ socket.on('user-state-updated', (data) => {
   if (p) {
     Object.assign(p, data);
     renderParticipants();
-
-    // Update remote tile class when user toggles screen share
-    const tile = document.getElementById(`tile-${data.id}`);
-    if (tile) {
-      if (data.isScreenSharing) {
-        tile.classList.add('screen-tile');
-        pinnedTileId = `tile-${data.id}`; // Auto-focus the active stream!
-      } else {
-        tile.classList.remove('screen-tile');
-        if (pinnedTileId === `tile-${data.id}`) pinnedTileId = null;
-      }
-      updateGridLayout();
-    }
+    refreshRemoteStreamTile(data.id);
   }
+});
+
+socket.on('stream-started', async ({ id, username }) => {
+  const p = participants.get(id);
+  if (p) p.isScreenSharing = true;
+  renderParticipants();
+
+  if (!peers.has(id)) {
+    await createPeerConnection(id, false);
+  }
+  refreshRemoteStreamTile(id);
+  appendSystemMessage(`📺 ${username} started sharing screen.`);
+});
+
+socket.on('stream-stopped', ({ id, username }) => {
+  const p = participants.get(id);
+  if (p) p.isScreenSharing = false;
+  renderParticipants();
+  refreshRemoteStreamTile(id);
+  appendSystemMessage(`📺 ${username} stopped sharing screen.`);
 });
 
 socket.on('user-disconnected', ({ id, username }) => {
@@ -388,7 +461,7 @@ socket.on('user-disconnected', ({ id, username }) => {
   appendSystemMessage(`${username} left.`);
 });
 
-// 4. Peer Connection Management
+// 5. Peer Connection Management
 async function createPeerConnection(targetSocketId, isInitiator) {
   if (peers.has(targetSocketId)) return peers.get(targetSocketId);
 
@@ -409,7 +482,7 @@ async function createPeerConnection(targetSocketId, isInitiator) {
   if (currentVideoTrack) {
     pc.addTrack(currentVideoTrack, localScreenStream || localStream);
   } else {
-    // Ensure video transceiver is ready to receive
+    // Ensure video transceiver is ready to receive incoming remote stream
     pc.addTransceiver('video', { direction: 'sendrecv' });
   }
 
@@ -436,44 +509,24 @@ async function createPeerConnection(targetSocketId, isInitiator) {
     if (existing) remoteStream.removeTrack(existing);
     remoteStream.addTrack(event.track);
 
-    const user = participants.get(targetSocketId);
-    const userName = user ? user.username : 'Friend';
-    const isScreen = user ? (user.isScreenSharing || false) : false;
-
-    let tile = document.getElementById(`tile-${targetSocketId}`);
-    if (!tile) {
-      tile = createVideoTile(`tile-${targetSocketId}`, userName, remoteStream, false, isScreen, targetSocketId);
-      videoGrid.appendChild(tile);
-    }
-
-    const video = tile.querySelector('video');
-    if (video) {
-      video.srcObject = remoteStream;
-      video.muted = false; // Remote video must NOT be muted so audio is heard!
-      video.play().catch(e => console.warn('Video/audio play required user gesture:', e));
-    }
-
     event.track.onunmute = () => {
-      if (video) {
-        video.srcObject = remoteStream;
-        video.muted = false;
-        video.play().catch(() => {});
-      }
+      refreshRemoteStreamTile(targetSocketId);
+    };
+    event.track.onended = () => {
+      refreshRemoteStreamTile(targetSocketId);
     };
 
-    const avatar = tile.querySelector('.avatar-placeholder');
-    if (avatar && (event.track.kind === 'video' || isScreen)) {
-      avatar.style.display = 'none';
-      tile.classList.remove('no-camera');
-    }
-
-    updateGridLayout();
+    refreshRemoteStreamTile(targetSocketId);
   };
 
   if (isInitiator) {
-    const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
-    await pc.setLocalDescription(offer);
-    socket.emit('signal-offer', { targetId: targetSocketId, sdp: offer });
+    try {
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+      await pc.setLocalDescription(offer);
+      socket.emit('signal-offer', { targetId: targetSocketId, sdp: offer });
+    } catch (e) {
+      console.warn('Initiator offer error:', e);
+    }
   }
 
   return pc;
@@ -561,7 +614,7 @@ async function toggleScreenShare() {
         }
         // Always renegotiate offer so the target user receives the video stream immediately
         try {
-          const offer = await pc.createOffer();
+          const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
           await pc.setLocalDescription(offer);
           socket.emit('signal-offer', { targetId, sdp: offer });
         } catch (e) {
@@ -573,6 +626,7 @@ async function toggleScreenShare() {
       screenTrack.onended = () => stopScreenShare();
 
       socket.emit('media-state-change', { isScreenSharing: true });
+      socket.emit('stream-started', { isScreenSharing: true });
     } catch (err) {
       console.warn('Screen share cancelled/denied:', err);
     }
@@ -621,9 +675,17 @@ function stopScreenShare() {
         await videoSender.replaceTrack(null);
       }
     }
+    try {
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+      await pc.setLocalDescription(offer);
+      socket.emit('signal-offer', { targetId, sdp: offer });
+    } catch (e) {
+      console.warn('Stop screen renegotiation error:', e);
+    }
   });
 
   socket.emit('media-state-change', { isScreenSharing: false });
+  socket.emit('stream-stopped', {});
   updateGridLayout();
 }
 

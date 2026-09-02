@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
@@ -78,6 +78,31 @@ io.on('connection', (socket) => {
         id: socket.id,
         ...data
       });
+    }
+  });
+
+  socket.on('stream-started', (data) => {
+    const user = users.get(socket.id);
+    if (user) {
+      user.isScreenSharing = true;
+      socket.to(user.room).emit('stream-started', {
+        id: socket.id,
+        username: user.username,
+        ...data
+      });
+      console.log(`[Stream] ${user.username} started streaming`);
+    }
+  });
+
+  socket.on('stream-stopped', () => {
+    const user = users.get(socket.id);
+    if (user) {
+      user.isScreenSharing = false;
+      socket.to(user.room).emit('stream-stopped', {
+        id: socket.id,
+        username: user.username
+      });
+      console.log(`[Stream] ${user.username} stopped streaming`);
     }
   });
 
