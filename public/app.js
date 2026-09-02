@@ -34,6 +34,7 @@ const chatInput = document.getElementById('chat-input');
 const btnMic = document.getElementById('btn-mic');
 const btnCam = document.getElementById('btn-cam');
 const btnScreen = document.getElementById('btn-screen');
+const btnKrisp = document.getElementById('btn-krisp');
 const btnChatToggle = document.getElementById('btn-chat-toggle');
 const btnQualityMenu = document.getElementById('btn-quality-menu');
 const qualityPopover = document.getElementById('quality-popover');
@@ -42,6 +43,145 @@ const qualityBadgeText = document.querySelector('.quality-badge-text');
 let isMuted = false;
 let isCamOff = false;
 let isScreenSharing = false;
+
+// Noise Suppression & Anti-Chiado State (Krisp DSP)
+let isNoiseSuppressionActive = true;
+let audioCtx = null;
+let micSourceNode = null;
+let noiseGateGain = null;
+let noiseAnalyser = null;
+let gateCheckInterval = null;
+let lastVoiceTime = 0;
+const GATE_THRESHOLD = 0.024; // Noise/keyboard threshold
+const GATE_HANGOVER_MS = 320; // Keep gate open 320ms after speaking to avoid clipping ends of words
+
+function showToast(text) {
+  let toast = document.getElementById('call-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'call-toast';
+    toast.className = 'call-toast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = text;
+  toast.classList.add('visible');
+  clearTimeout(toast._timeout);
+  toast._timeout = setTimeout(() => {
+    toast.classList.remove('visible');
+  }, 2800);
+}
+
+function setupAudioDSP(rawStream) {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return rawStream;
+
+    audioCtx = new AudioContextClass();
+    micSourceNode = audioCtx.createMediaStreamSource(rawStream);
+
+    // 1. High-pass filter: Cuts desk rumble & mechanical keyboard bottom-out bass (< 90Hz)
+    const highPass = audioCtx.createBiquadFilter();
+    highPass.type = 'highpass';
+    highPass.frequency.value = 90;
+    highPass.Q.value = 0.7;
+
+    // 2. Low-pass filter: Cuts high-frequency white noise & electronic hiss (> 7200Hz)
+    const lowPass = audioCtx.createBiquadFilter();
+    lowPass.type = 'lowpass';
+    lowPass.frequency.value = 7200;
+    lowPass.Q.value = 0.7;
+
+    // 3. Peaking notch filter: Softens harsh mechanical keyboard switch clatter (~3200Hz)
+    const keyFilter = audioCtx.createBiquadFilter();
+    keyFilter.type = 'peaking';
+    keyFilter.frequency.value = 3200;
+    keyFilter.Q.value = 1.3;
+    keyFilter.gain.value = -6.0;
+
+    // 4. Dynamics compressor: Normalizes voice and stops quiet ambient noise amplification
+    const compressor = audioCtx.createDynamicsCompressor();
+    compressor.threshold.value = -24;
+    compressor.knee.value = 25;
+    compressor.ratio.value = 10;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.25;
+
+    // 5. Smart Noise Gate (VAD) Gain Node
+    noiseGateGain = audioCtx.createGain();
+    noiseGateGain.gain.setValueAtTime(1, audioCtx.currentTime);
+
+    // 6. Analyser to measure RMS speech volume
+    noiseAnalyser = audioCtx.createAnalyser();
+    noiseAnalyser.fftSize = 512;
+
+    // Connect DSP Chain:
+    // mic -> highPass -> lowPass -> keyFilter -> compressor -> noiseGateGain -> destination
+    micSourceNode.connect(highPass);
+    highPass.connect(lowPass);
+    lowPass.connect(keyFilter);
+    keyFilter.connect(compressor);
+    compressor.connect(noiseGateGain);
+    compressor.connect(noiseAnalyser); // Read pre-gate volume for VAD calculation
+
+    const dest = audioCtx.createMediaStreamDestination();
+    noiseGateGain.connect(dest);
+
+    startNoiseGateLoop();
+
+    return dest.stream;
+  } catch (err) {
+    console.warn('Audio DSP setup failed, using raw mic:', err);
+    return rawStream;
+  }
+}
+
+function startNoiseGateLoop() {
+  if (gateCheckInterval) clearInterval(gateCheckInterval);
+  const dataArray = new Uint8Array(noiseAnalyser.frequencyBinCount);
+
+  gateCheckInterval = setInterval(() => {
+    if (!isNoiseSuppressionActive || !noiseGateGain || !noiseAnalyser || !audioCtx) {
+      if (noiseGateGain && audioCtx) {
+        noiseGateGain.gain.setTargetAtTime(1, audioCtx.currentTime, 0.02);
+      }
+      return;
+    }
+
+    noiseAnalyser.getByteTimeDomainData(dataArray);
+
+    let sum = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+      const val = (dataArray[i] - 128) / 128;
+      sum += val * val;
+    }
+    const rms = Math.sqrt(sum / dataArray.length);
+    const now = performance.now();
+
+    if (rms > GATE_THRESHOLD) {
+      lastVoiceTime = now;
+      // User is speaking: Open gate smoothly in 15ms
+      noiseGateGain.gain.setTargetAtTime(1, audioCtx.currentTime, 0.015);
+      highlightSelfSpeaking(true);
+    } else {
+      // User not speaking: Silence keyboards, fan, and hiss after handover
+      if (now - lastVoiceTime > GATE_HANGOVER_MS) {
+        noiseGateGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.035);
+        highlightSelfSpeaking(false);
+      }
+    }
+  }, 25);
+}
+
+function highlightSelfSpeaking(isSpeaking) {
+  const avatarEl = document.getElementById('self-avatar');
+  if (avatarEl) {
+    if (isSpeaking && !isMuted) {
+      avatarEl.classList.add('speaking');
+    } else {
+      avatarEl.classList.remove('speaking');
+    }
+  }
+}
 
 // Stream Quality Presets (Default: 1080p @ 30 FPS)
 let selectedResolution = '1080'; // '720', '1080', 'source'
@@ -65,6 +205,18 @@ usernameInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') joinRoom();
 });
 
+if (btnKrisp) {
+  btnKrisp.addEventListener('click', () => {
+    isNoiseSuppressionActive = !isNoiseSuppressionActive;
+    btnKrisp.classList.toggle('active', isNoiseSuppressionActive);
+    if (isNoiseSuppressionActive) {
+      showToast('✨ Anti-Chiado ATIVADO: Teclados, ruídos e chiados bloqueados');
+    } else {
+      showToast('⚠️ Anti-Chiado DESATIVADO: Microfone bruto transmitido');
+    }
+  });
+}
+
 async function joinRoom() {
   const name = usernameInput.value.trim();
   if (!name) return;
@@ -81,7 +233,7 @@ async function joinRoom() {
 
   try {
     // Acquire local mic with echo cancellation and noise suppression
-    localStream = await navigator.mediaDevices.getUserMedia({
+    const rawStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
@@ -89,6 +241,7 @@ async function joinRoom() {
       },
       video: false
     });
+    localStream = setupAudioDSP(rawStream);
   } catch (err) {
     console.warn('Microphone access denied or unavailable:', err);
     localStream = new MediaStream();

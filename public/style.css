@@ -914,3 +914,61 @@ body {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
+/* Anti-Chiado / Krisp Noise Suppression */
+.control-btn.krisp-btn {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  position: relative;
+}
+
+.control-btn.krisp-btn.active {
+  background: linear-gradient(135deg, #2ecc71, #27ae60) !important;
+  color: white !important;
+  box-shadow: 0 0 14px rgba(46, 204, 113, 0.45);
+  border-color: #2ecc71 !important;
+}
+
+.control-btn.krisp-btn:not(.active) {
+  opacity: 0.7;
+  background-color: var(--bg-accent);
+}
+
+.control-btn.krisp-btn:hover {
+  filter: brightness(1.12);
+  transform: translateY(-1px);
+}
+
+/* Speaking Indicator on Self Avatar */
+.user-avatar.speaking {
+  box-shadow: 0 0 0 3px #2ecc71, 0 0 12px rgba(46, 204, 113, 0.6) !important;
+  transition: box-shadow 0.15s ease-out;
+}
+
+/* Call Dynamic Toast */
+.call-toast {
+  position: fixed;
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: rgba(30, 31, 34, 0.95);
+  color: #fff;
+  padding: 10px 22px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  font-size: 13.5px;
+  font-weight: 600;
+  pointer-events: none;
+  opacity: 0;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.call-toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
