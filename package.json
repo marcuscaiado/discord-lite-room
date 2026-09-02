@@ -1,7 +1,7 @@
 {
-  "name": "discord-lite-room",
-  "version": "1.0.0",
-  "description": "Lightweight Discord clone for 10 users with screen sharing, voice, video, and text chat",
+  "name": "call-rooms",
+  "version": "1.1.0",
+  "description": "Call - Lightweight voice, video, and 1080p screen sharing rooms",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

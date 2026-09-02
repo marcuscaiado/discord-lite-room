@@ -1,13 +1,13 @@
-# DosCria Room - Lightweight Discord WebRTC Clone
+# Call ⚡ - Lightweight WebRTC Voice, Video & Screen Rooms
 
-A lightweight Discord-like web application designed for up to 10 participants with real-time voice, 1080p 30fps screen transmission, video, dynamic room isolation, and text chat.
+**Call** (formerly Discord Lite) is a fast, lightweight Discord-like web application designed for real-time voice, 1080p 30fps screen transmission, video, dynamic private room isolation, and instant chat.
 
-## Features
-- **1080p @ 30 FPS Screen Transmission** (WebRTC Mesh with bitrate optimization)
-- **Multi-Screen Support**: Multiple users can stream screens at the exact same time
-- **Multi-Room Isolation**: Simply append `?room=roomname` to create isolated hangout lounges
-- **Window Modes**: OS Fullscreen, In-Window Borderless Maximize, and Dynamic Pinning
-- **Universal Layout**: Automatically centers and fits horizontal, portrait, and ultrawide monitors
+## Key Features
+- **Instant Private Rooms**: Anyone can create an isolated room on the fly by appending `?room=roomname` (e.g., `?room=cs2`, `?room=vip`)
+- **1080p @ 30 FPS Screen Transmission**: WebRTC mesh with bitrate optimization and live stream auto-focus
+- **Zero-Reload Dynamic Streaming**: Incoming screen shares and camera toggles display instantly without requiring page refreshes
+- **Auto-Reconnection**: Reconnects to the room seamlessly after network blips or server restarts
+- **Window Modes**: OS Fullscreen, In-Window Borderless Maximize, and Dynamic Stream Pinning
 - **Individual Audio Controls**: Per-user volume sliders and mute controls
 - **Real-Time Text Chat**: Synchronized via Socket.io
 

@@ -47,9 +47,17 @@ let isScreenSharing = false;
 let selectedResolution = '1080'; // '720', '1080', 'source'
 let selectedFps = 30; // 30 or 60
 
-// Extract room ID from URL (e.g. ?room=doscria2 or #doscria2 or default to 'main-room')
+// Extract room ID from URL (e.g. ?room=gaming or #gaming or default to 'main-room')
 const urlParams = new URLSearchParams(window.location.search);
 const currentRoomId = urlParams.get('room') || window.location.hash.replace('#', '') || 'main-room';
+
+// Auto re-join room if socket reconnects after network drop or server restart
+socket.on('connect', () => {
+  console.log('[Socket] Connected/Reconnected:', socket.id);
+  if (currentUsername) {
+    socket.emit('join-room', { username: currentUsername, room: currentRoomId });
+  }
+});
 
 // 1. Join Room Flow
 joinBtn.addEventListener('click', joinRoom);
@@ -67,9 +75,9 @@ async function joinRoom() {
   selfUsername.textContent = currentUsername;
   selfAvatar.textContent = currentUsername.charAt(0).toUpperCase();
   const roomTitleEl = document.querySelector('.guild-title h3');
-  if (roomTitleEl) roomTitleEl.textContent = currentRoomId.toUpperCase();
+  if (roomTitleEl) roomTitleEl.textContent = `Call: ${currentRoomId.toUpperCase()}`;
   const brandTagEl = document.querySelector('.brand-tag');
-  if (brandTagEl) brandTagEl.textContent = `⚡ ${currentRoomId.toUpperCase()} ROOM`;
+  if (brandTagEl) brandTagEl.textContent = `⚡ CALL (${currentRoomId.toUpperCase()})`;
 
   try {
     // Acquire local mic with echo cancellation and noise suppression
