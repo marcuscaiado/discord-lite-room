@@ -513,41 +513,41 @@ function handleSpeakingState(isSpeaking) {
   socket.emit('user-speaking', { isSpeaking });
 }
 
-// Dedicated Remote Audio Playback Engine (Unbroken background sound across all views)
-function attachRemoteAudio(targetId, track, stream) {
-  let audioEl = document.getElementById(`audio-peer-${targetId}`);
+// Dedicated Remote Audio Playback Engine (Independent element per audio track: Voice & Stream)
+function playRemoteAudioTrack(targetId, track, isScreen = false) {
+  if (!track || track.readyState === 'ended') return;
+
+  const audioId = `audio-track-${track.id}`;
+  let audioEl = document.getElementById(audioId);
   if (!audioEl) {
     audioEl = document.createElement('audio');
-    audioEl.id = `audio-peer-${targetId}`;
+    audioEl.id = audioId;
     audioEl.autoplay = true;
     audioEl.playsInline = true;
     audioEl.setAttribute('data-peer-audio', targetId);
     audioEl.style.position = 'fixed';
-    audioEl.style.pointerEvents = 'none';
-    audioEl.style.opacity = '0';
-    audioEl.style.width = '1px';
-    audioEl.style.height = '1px';
-    audioEl.style.bottom = '0';
-    audioEl.style.right = '0';
+    audioEl.style.left = '-9999px';
+    audioEl.style.top = '-9999px';
     document.body.appendChild(audioEl);
   }
 
   audioEl.muted = isDeafened;
   audioEl.volume = soundVolume;
 
-  const audioStream = (stream && stream.getAudioTracks().length > 0) ? stream : new MediaStream([track]);
-  if (audioEl.srcObject !== audioStream) {
-    audioEl.srcObject = audioStream;
+  // Crucial: Bind ONLY this specific audio track into its own MediaStream
+  if (!audioEl.srcObject || !audioEl.srcObject.getTracks().includes(track)) {
+    audioEl.srcObject = new MediaStream([track]);
   }
 
-  userAudioElements.set(targetId, audioEl);
+  userAudioElements.set(track.id, audioEl);
 
   const playPromise = audioEl.play();
   if (playPromise !== undefined) {
     playPromise.then(() => {
-      console.log(`[Audio Playback] Streaming remote voice from ${targetId} at volume ${Math.round(soundVolume * 100)}%`);
+      console.log(`[Audio Engine] 🔊 Playing ${isScreen ? 'Stream Audio' : 'Voice Audio'} [${track.id}] from ${targetId}`);
     }).catch(err => {
-      console.warn(`[Audio Playback] Autoplay waiting for user gesture for ${targetId}:`, err);
+      console.warn(`[Audio Engine] Autoplay gesture required for track ${track.id}:`, err);
+      showToast('🔊 Click anywhere on Discord to enable audio playback!');
     });
   }
 }
@@ -1028,18 +1028,25 @@ function refreshRemoteStreamTile(socketId) {
 
   const video = tile.querySelector('video');
   if (video && stream) {
-    if (video.srcObject !== stream) {
-      video.srcObject = stream;
+    video.muted = true; // Video element in grid is strictly muted; audio plays via dedicated <audio>!
+    const videoTracks = stream.getVideoTracks();
+    if (videoTracks.length > 0 && videoTracks[0].enabled) {
+      if (!video.srcObject || !video.srcObject.getVideoTracks().includes(videoTracks[0])) {
+        video.srcObject = new MediaStream([videoTracks[0]]);
+      }
+      tile.classList.add('has-video');
+      video.play().catch(e => console.warn('Autoplay video note:', e));
+    } else {
+      video.srcObject = null;
+      tile.classList.remove('has-video');
     }
-    video.muted = true; // Video tile is muted; dedicated <audio> handles playback reliably!
-    const hasVideo = stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled;
-    tile.classList.toggle('has-video', hasVideo);
-    video.play().catch(e => console.warn('Autoplay video note:', e));
   }
 
-  // Ensure remote audio is routed to dedicated unmuted player
-  if (stream && stream.getAudioTracks().length > 0) {
-    attachRemoteAudio(socketId, stream.getAudioTracks()[0], stream);
+  // Ensure ALL audio tracks (microphone AND stream audio) are playing in their own elements
+  if (stream) {
+    stream.getAudioTracks().forEach(track => {
+      playRemoteAudioTrack(socketId, track, isScreen);
+    });
   }
 
   tile.classList.toggle('screen-tile', isScreen);
@@ -1109,6 +1116,11 @@ async function createPeerConnection(targetId, isInitiator) {
     pc.addTransceiver('video', { direction: 'sendrecv' });
   }
 
+  // 3. Add screen audio track if already sharing screen
+  if (localScreenStream && localScreenStream.getAudioTracks()[0]) {
+    pc.addTrack(localScreenStream.getAudioTracks()[0], localScreenStream);
+  }
+
   pc.onicecandidate = (event) => {
     if (event.candidate) {
       socket.emit('ice-candidate', { targetId, candidate: event.candidate });
@@ -1128,36 +1140,44 @@ async function createPeerConnection(targetId, isInitiator) {
   };
 
   pc.ontrack = (event) => {
-    console.log(`[WebRTC] Received remote ${event.track.kind} track from ${targetId}`, event.track.id);
+    const track = event.track;
+    console.log(`[WebRTC] Received remote ${track.kind} track (${track.id}) from ${targetId}`);
+
     let stream = remoteStreams.get(targetId);
     if (!stream) {
-      stream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream();
+      stream = new MediaStream();
       remoteStreams.set(targetId, stream);
     }
-    const existing = stream.getTracks().find(t => t.kind === event.track.kind);
-    if (existing && existing.id !== event.track.id) {
-      stream.removeTrack(existing);
-    }
-    if (!stream.getTracks().includes(event.track)) {
-      stream.addTrack(event.track);
+
+    if (!stream.getTracks().includes(track)) {
+      stream.addTrack(track);
     }
 
-    if (event.track.kind === 'audio') {
-      attachRemoteAudio(targetId, event.track, stream);
-    }
+    if (track.kind === 'audio') {
+      const isScreenAudio = event.streams[0] && (event.streams[0].id.includes('screen') || allUsers.get(targetId)?.isScreenSharing);
+      playRemoteAudioTrack(targetId, track, isScreenAudio);
 
-    event.track.onunmute = () => {
-      console.log(`[WebRTC] Remote track onunmute: ${event.track.kind} from ${targetId}`);
-      if (event.track.kind === 'audio') {
-        attachRemoteAudio(targetId, event.track, stream);
-      }
+      track.onunmute = () => {
+        console.log(`[WebRTC] Audio track onunmute (${track.id}) from ${targetId}`);
+        playRemoteAudioTrack(targetId, track, isScreenAudio);
+      };
+
+      track.onended = () => {
+        console.log(`[WebRTC] Audio track onended (${track.id}) from ${targetId}`);
+        const el = document.getElementById(`audio-track-${track.id}`);
+        if (el) el.remove();
+        userAudioElements.delete(track.id);
+        stream.removeTrack(track);
+      };
+    } else if (track.kind === 'video') {
       refreshRemoteStreamTile(targetId);
-    };
 
-    event.track.onended = () => {
-      console.log(`[WebRTC] Remote track onended: ${event.track.kind} from ${targetId}`);
-      refreshRemoteStreamTile(targetId);
-    };
+      track.onunmute = () => refreshRemoteStreamTile(targetId);
+      track.onended = () => {
+        stream.removeTrack(track);
+        refreshRemoteStreamTile(targetId);
+      };
+    }
 
     refreshRemoteStreamTile(targetId);
   };
@@ -1183,10 +1203,9 @@ function closePeer(userId) {
   }
   remoteStreams.delete(userId);
   pendingCandidates.delete(userId);
-  userAudioElements.delete(userId);
 
-  const audioEl = document.getElementById(`audio-peer-${userId}`);
-  if (audioEl) audioEl.remove();
+  // Remove all audio elements belonging to this peer
+  document.querySelectorAll(`audio[data-peer-audio="${userId}"]`).forEach(el => el.remove());
 
   const tile = document.getElementById(`tile-${userId}`);
   if (tile) tile.remove();
@@ -1482,21 +1501,32 @@ btnScreen.addEventListener('click', async () => {
           width: streamResolution === '720' ? 1280 : 1920,
           height: streamResolution === '720' ? 720 : 1080
         },
-        audio: true
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
+        }
       });
 
-      const screenTrack = localScreenStream.getVideoTracks()[0];
-      screenTrack.onended = stopScreenShare;
+      const screenVideoTrack = localScreenStream.getVideoTracks()[0];
+      const screenAudioTrack = localScreenStream.getAudioTracks()[0] || null;
 
-      // Replace track on existing senders or add, then renegotiate immediately
+      screenVideoTrack.onended = stopScreenShare;
+
+      // Attach both screen video AND screen audio to all peer connections
       peers.forEach(async (pc, targetId) => {
         const senders = pc.getSenders();
         const videoSender = senders.find(s => s.track && s.track.kind === 'video') ||
                             senders.find(s => !s.track);
         if (videoSender) {
-          await videoSender.replaceTrack(screenTrack);
+          await videoSender.replaceTrack(screenVideoTrack);
         } else {
-          pc.addTrack(screenTrack, localScreenStream);
+          pc.addTrack(screenVideoTrack, localScreenStream);
+        }
+
+        // Transmit screen audio track if tab / system audio was shared
+        if (screenAudioTrack) {
+          pc.addTrack(screenAudioTrack, localScreenStream);
         }
 
         try {
@@ -1509,15 +1539,15 @@ btnScreen.addEventListener('click', async () => {
       });
 
       // Show local screen tile
-      const screenTile = createVideoTile('tile-screen-self', 'Your Stream (1080p)', localScreenStream, true, true, 'self');
+      const screenTile = createVideoTile('tile-screen-self', 'Your Stream (1080p)', new MediaStream([screenVideoTrack]), true, true, 'self');
       videoGrid.prepend(screenTile);
 
       isScreenSharing = true;
       btnScreen.classList.add('danger');
       btnScreen.querySelector('.btn-text').textContent = 'Stop Sharing';
-      socket.emit('stream-started', { resolution: streamResolution, fps: streamFps });
+      socket.emit('stream-started', { resolution: streamResolution, fps: streamFps, hasAudio: !!screenAudioTrack });
       socket.emit('media-state-change', { isScreenSharing: true });
-      showToast('📺 1080p Screen Sharing Started');
+      showToast(screenAudioTrack ? '📺 1080p Stream Started (with Tab Audio 🔊)' : '📺 1080p Stream Started');
     } catch (e) {
       console.warn('Screen share canceled or denied:', e);
     }
@@ -1536,6 +1566,13 @@ function stopScreenShare() {
 
   peers.forEach(async (pc, targetId) => {
     const senders = pc.getSenders();
+    // Remove stopped screen audio senders
+    senders.forEach(s => {
+      if (s.track && s.track.readyState === 'ended' && s.track.kind === 'audio') {
+        try { pc.removeTrack(s); } catch (e) {}
+      }
+    });
+
     const videoSender = senders.find(s => s.track && s.track.kind === 'video');
     if (videoSender) {
       const fallbackTrack = (localVideoStream && localVideoStream.getVideoTracks()[0]) || null;
@@ -1553,7 +1590,7 @@ function stopScreenShare() {
   btnScreen.querySelector('.btn-text').textContent = 'Share Screen';
   socket.emit('stream-stopped');
   socket.emit('media-state-change', { isScreenSharing: false });
-  showToast('📺 Screen Sharing Stopped');
+  showToast('📺 Screen sharing stopped.');
 }
 
 // Stream Quality Settings Popover
