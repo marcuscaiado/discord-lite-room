@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon" href="/caller-icon-32.png?v=3.3">
   <meta name="theme-color" content="#5865f2">
   <meta name="description" content="Caller - Real-time Voice, Video & 1080p Screen Streaming Spaces">
-  <link rel="stylesheet" href="style.css?v=3.4">
+  <link rel="stylesheet" href="style.css?v=3.5">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=gg+sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="/socket.io/socket.io.js"></script>
@@ -573,6 +573,44 @@
     </div>
   </div>
 
+  <!-- Invite Friends Modal with Short URLs -->
+  <div id="invite-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header-line">
+        <h2>Invite Friends to Caller</h2>
+        <button class="modal-close-btn" id="close-invite-modal">✕</button>
+      </div>
+      <p>Share these links with anyone to jump directly into your room, voice channels, and 1080p stream.</p>
+      
+      <!-- Short Vanity Link -->
+      <div class="input-group" style="margin-top: 14px;">
+        <label>⚡ BRANDED SHORT LINK (EASY TO SHARE)</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="invite-short-input" value="https://tinyurl.com/caller-web-live" readonly style="font-weight: 600; color: #5865F2;" />
+          <button class="primary-btn" id="btn-copy-short" style="white-space: nowrap; width: auto; padding: 0 16px;">Copy</button>
+        </div>
+      </div>
+
+      <!-- Ultra-Short Link -->
+      <div class="input-group">
+        <label>🔗 ULTRA-SHORT LINK</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="invite-tiny-input" value="https://tinyurl.com/23uofzqn" readonly style="font-weight: 600; color: #57F287;" />
+          <button class="primary-btn" id="btn-copy-tiny" style="white-space: nowrap; width: auto; padding: 0 16px; background-color: #23a55a;">Copy</button>
+        </div>
+      </div>
+
+      <!-- Direct Full Link -->
+      <div class="input-group">
+        <label>🌐 DIRECT FULL PRODUCTION URL</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="invite-full-input" value="https://doscria.up.railway.app/" readonly />
+          <button class="opt-btn" id="btn-copy-full" style="white-space: nowrap; width: auto; padding: 0 16px;">Copy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Full Discord User Settings Modal -->
   <div id="settings-modal" class="settings-overlay hidden">
     <div class="settings-wrapper">
@@ -702,6 +740,6 @@
   </div>
 
   <!-- Audio elements & Scripts -->
-  <script src="app.js?v=3.4"></script>
+  <script src="app.js?v=3.5"></script>
 </body>
 </html>

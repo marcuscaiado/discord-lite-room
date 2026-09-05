@@ -2852,8 +2852,7 @@ if (menuInvitePeople) {
   menuInvitePeople.addEventListener('click', (e) => {
     e.stopPropagation();
     closeServerDropdown();
-    navigator.clipboard.writeText(window.location.href);
-    showToast('📋 Invite link copied to clipboard!');
+    openInviteModal();
   });
 }
 
@@ -3034,19 +3033,64 @@ document.getElementById('btn-settings-logout').addEventListener('click', () => {
   window.location.reload();
 });
 
-if (btnCopyInvite) {
-  btnCopyInvite.addEventListener('click', () => {
-    const inviteUrl = window.location.href;
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(inviteUrl).then(() => {
-        showToast('📋 Link copied! Send this URL to your friend.');
-      }).catch(() => {
-        prompt('Copy your invite link:', inviteUrl);
-      });
-    } else {
-      prompt('Copy your invite link:', inviteUrl);
-    }
+// Invite Modal & Short Link Logic
+const inviteModal = document.getElementById('invite-modal');
+const closeInviteModal = document.getElementById('close-invite-modal');
+const btnCopyShort = document.getElementById('btn-copy-short');
+const btnCopyTiny = document.getElementById('btn-copy-tiny');
+const btnCopyFull = document.getElementById('btn-copy-full');
+
+function openInviteModal() {
+  if (!inviteModal) return;
+  const fullInput = document.getElementById('invite-full-input');
+  if (fullInput) {
+    fullInput.value = window.location.href;
+  }
+  inviteModal.classList.remove('hidden');
+}
+
+if (closeInviteModal) {
+  closeInviteModal.addEventListener('click', () => inviteModal.classList.add('hidden'));
+}
+if (inviteModal) {
+  inviteModal.addEventListener('click', (e) => {
+    if (e.target === inviteModal) inviteModal.classList.add('hidden');
   });
+}
+
+function copyTextWithToast(text, label) {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => {
+      showToast(`📋 ${label} copied to clipboard!`);
+    }).catch(() => {
+      prompt(`Copy ${label}:`, text);
+    });
+  } else {
+    prompt(`Copy ${label}:`, text);
+  }
+}
+
+if (btnCopyShort) {
+  btnCopyShort.addEventListener('click', () => {
+    const val = document.getElementById('invite-short-input').value;
+    copyTextWithToast(val, 'Short link (caller-web-live)');
+  });
+}
+if (btnCopyTiny) {
+  btnCopyTiny.addEventListener('click', () => {
+    const val = document.getElementById('invite-tiny-input').value;
+    copyTextWithToast(val, 'Ultra-short link (23uofzqn)');
+  });
+}
+if (btnCopyFull) {
+  btnCopyFull.addEventListener('click', () => {
+    const val = document.getElementById('invite-full-input').value;
+    copyTextWithToast(val, 'Full URL');
+  });
+}
+
+if (btnCopyInvite) {
+  btnCopyInvite.addEventListener('click', openInviteModal);
 }
 
 console.log('⚡ Caller Engine loaded successfully.');
