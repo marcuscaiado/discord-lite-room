@@ -10,7 +10,23 @@ const rtcConfig = {
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
-    { urls: 'stun:global.stun.twilio.com:3478' }
+    { urls: 'stun:global.stun.twilio.com:3478' },
+    { urls: 'stun:stun.relay.metered.ca:80' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ],
   iceCandidatePoolSize: 10
 };
@@ -371,6 +387,11 @@ function unlockAllAudio() {
       }).catch(err => {
         console.warn('[Audio Playback] Play pending gesture:', err);
       });
+    }
+  });
+  document.querySelectorAll('video').forEach(v => {
+    if (v.paused && v.srcObject) {
+      v.play().catch(() => {});
     }
   });
   if (audioCtx && audioCtx.state === 'suspended') {
@@ -1061,12 +1082,11 @@ function refreshRemoteStreamTile(socketId) {
 // Socket Voice Handlers
 socket.on('voice-channel-joined', async ({ channelId, participants }) => {
   await ensureLocalMic();
-  // Initiate peer connections to all existing participants in room
+  // Register and display all existing participants in room immediately
   for (const p of participants) {
+    allUsers.set(p.id, p);
+    refreshRemoteStreamTile(p.id);
     await createPeerConnection(p.id, true);
-    if (p.isScreenSharing) {
-      refreshRemoteStreamTile(p.id);
-    }
   }
 });
 
@@ -1076,9 +1096,7 @@ socket.on('voice-user-joined', async ({ channelId, user }) => {
   showToast(`👤 ${user.username} joined voice.`);
 
   await ensureLocalMic();
-  if (!peers.has(user.id)) {
-    await createPeerConnection(user.id, false);
-  }
+  // Show their tile immediately; incoming signal-offer from joining user will answer connection
   refreshRemoteStreamTile(user.id);
 });
 
@@ -1093,118 +1111,143 @@ socket.on('voice-membership-updated', ({ channelId, members }) => {
   renderVoiceNestedMembers();
 });
 
-// WebRTC Peer Connection Factory with sendrecv Transceiver Fallback
+// WebRTC Peer Connection Factory with Creation Mutex & sendrecv Transceiver Fallback
+const peerCreationLocks = new Map(); // targetId -> Promise<RTCPeerConnection>
+
 async function createPeerConnection(targetId, isInitiator) {
   if (peers.has(targetId)) return peers.get(targetId);
-
-  const pc = new RTCPeerConnection(rtcConfig);
-  peers.set(targetId, pc);
-
-  // 1. Add local audio track or audio transceiver
-  if (localAudioStream && localAudioStream.getAudioTracks()[0]) {
-    const track = localAudioStream.getAudioTracks()[0];
-    track.enabled = !isMuted;
-    pc.addTrack(track, localAudioStream);
-  } else {
-    pc.addTransceiver('audio', { direction: 'sendrecv' });
+  if (peerCreationLocks.has(targetId)) {
+    return peerCreationLocks.get(targetId);
   }
 
-  // 2. Add local video track or video transceiver (Ensures incoming video displays without refresh!)
-  const currentVideoTrack = (localScreenStream && localScreenStream.getVideoTracks()[0]) ||
-                            (localVideoStream && localVideoStream.getVideoTracks()[0]);
-  if (currentVideoTrack) {
-    pc.addTrack(currentVideoTrack, localScreenStream || localVideoStream);
-  } else {
-    pc.addTransceiver('video', { direction: 'sendrecv' });
-  }
+  const creationPromise = (async () => {
+    const pc = new RTCPeerConnection(rtcConfig);
+    peers.set(targetId, pc);
 
-  // 3. Add screen audio track if already sharing screen
-  if (localScreenStream && localScreenStream.getAudioTracks()[0]) {
-    pc.addTrack(localScreenStream.getAudioTracks()[0], localScreenStream);
-  }
-
-  pc.onicecandidate = (event) => {
-    if (event.candidate) {
-      socket.emit('ice-candidate', { targetId, candidate: event.candidate });
-    }
-  };
-
-  pc.onconnectionstatechange = () => {
-    console.log(`[WebRTC] Peer ${targetId} connection state:`, pc.connectionState);
-    if (pc.connectionState === 'connected') {
-      const u = allUsers.get(targetId);
-      showToast(`🟢 Voice connected with ${u ? u.username : 'friend'}`);
-      unlockAllAudio();
-    } else if (pc.connectionState === 'failed') {
-      console.warn(`[WebRTC] Connection failed with ${targetId}, attempting ICE restart`);
-      if (pc.restartIce) pc.restartIce();
-    }
-  };
-
-  pc.ontrack = (event) => {
-    const track = event.track;
-    console.log(`[WebRTC] Received remote ${track.kind} track (${track.id}) from ${targetId}`);
-
-    let stream = remoteStreams.get(targetId);
-    if (!stream) {
-      stream = new MediaStream();
-      remoteStreams.set(targetId, stream);
+    // 1. Add local audio track or audio transceiver
+    if (localAudioStream && localAudioStream.getAudioTracks()[0]) {
+      const track = localAudioStream.getAudioTracks()[0];
+      track.enabled = !isMuted;
+      pc.addTrack(track, localAudioStream);
+    } else {
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
     }
 
-    if (!stream.getTracks().includes(track)) {
-      stream.addTrack(track);
+    // 2. Add local video track or video transceiver (Ensures incoming video displays without refresh!)
+    const currentVideoTrack = (localScreenStream && localScreenStream.getVideoTracks()[0]) ||
+                              (localVideoStream && localVideoStream.getVideoTracks()[0]);
+    if (currentVideoTrack) {
+      pc.addTrack(currentVideoTrack, localScreenStream || localVideoStream);
+    } else {
+      pc.addTransceiver('video', { direction: 'sendrecv' });
     }
 
-    if (track.kind === 'audio') {
-      const isScreenAudio = event.streams[0] && (event.streams[0].id.includes('screen') || allUsers.get(targetId)?.isScreenSharing);
-      playRemoteAudioTrack(targetId, track, isScreenAudio);
+    // 3. Add screen audio track if already sharing screen
+    if (localScreenStream && localScreenStream.getAudioTracks()[0]) {
+      pc.addTrack(localScreenStream.getAudioTracks()[0], localScreenStream);
+    }
 
-      track.onunmute = () => {
-        console.log(`[WebRTC] Audio track onunmute (${track.id}) from ${targetId}`);
-        playRemoteAudioTrack(targetId, track, isScreenAudio);
-      };
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit('ice-candidate', { targetId, candidate: event.candidate });
+      }
+    };
 
-      track.onended = () => {
-        console.log(`[WebRTC] Audio track onended (${track.id}) from ${targetId}`);
-        const el = document.getElementById(`audio-track-${track.id}`);
-        if (el) el.remove();
-        userAudioElements.delete(track.id);
-        stream.removeTrack(track);
-      };
-    } else if (track.kind === 'video') {
-      refreshRemoteStreamTile(targetId);
-
-      track.onunmute = () => refreshRemoteStreamTile(targetId);
-      track.onended = () => {
-        stream.removeTrack(track);
+    pc.onconnectionstatechange = async () => {
+      console.log(`[WebRTC] Peer ${targetId} connection state:`, pc.connectionState);
+      if (pc.connectionState === 'connected') {
+        const u = allUsers.get(targetId);
+        showToast(`🟢 Voice connected with ${u ? u.username : 'friend'}`);
+        unlockAllAudio();
         refreshRemoteStreamTile(targetId);
-      };
+      } else if (pc.connectionState === 'failed') {
+        console.warn(`[WebRTC] Connection failed with ${targetId}, attempting automated ICE restart`);
+        try {
+          if (pc.restartIce) pc.restartIce();
+          const offer = await pc.createOffer({ iceRestart: true, offerToReceiveAudio: true, offerToReceiveVideo: true });
+          await pc.setLocalDescription(offer);
+          socket.emit('signal-offer', { targetId, sdp: pc.localDescription });
+        } catch (err) {
+          console.warn('ICE restart error:', err);
+        }
+      }
+    };
+
+    pc.ontrack = (event) => {
+      const track = event.track;
+      console.log(`[WebRTC] Received remote ${track.kind} track (${track.id}) from ${targetId}`);
+
+      let stream = remoteStreams.get(targetId);
+      if (!stream) {
+        stream = new MediaStream();
+        remoteStreams.set(targetId, stream);
+      }
+
+      if (!stream.getTracks().includes(track)) {
+        stream.addTrack(track);
+      }
+
+      if (track.kind === 'audio') {
+        const isScreenAudio = event.streams[0] && (event.streams[0].id.includes('screen') || allUsers.get(targetId)?.isScreenSharing);
+        playRemoteAudioTrack(targetId, track, isScreenAudio);
+
+        track.onunmute = () => {
+          console.log(`[WebRTC] Audio track onunmute (${track.id}) from ${targetId}`);
+          playRemoteAudioTrack(targetId, track, isScreenAudio);
+        };
+
+        track.onended = () => {
+          console.log(`[WebRTC] Audio track onended (${track.id}) from ${targetId}`);
+          const el = document.getElementById(`audio-track-${track.id}`);
+          if (el) el.remove();
+          userAudioElements.delete(track.id);
+          stream.removeTrack(track);
+        };
+      } else if (track.kind === 'video') {
+        refreshRemoteStreamTile(targetId);
+
+        track.onunmute = () => refreshRemoteStreamTile(targetId);
+        track.onmute = () => refreshRemoteStreamTile(targetId);
+        track.onended = () => {
+          stream.removeTrack(track);
+          refreshRemoteStreamTile(targetId);
+        };
+      }
+
+      refreshRemoteStreamTile(targetId);
+    };
+
+    if (isInitiator) {
+      try {
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+        await pc.setLocalDescription(offer);
+        socket.emit('signal-offer', { targetId, sdp: pc.localDescription });
+      } catch (e) {
+        console.warn('Initiator offer error:', e);
+      }
     }
 
-    refreshRemoteStreamTile(targetId);
-  };
+    return pc;
+  })();
 
-  if (isInitiator) {
-    try {
-      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
-      await pc.setLocalDescription(offer);
-      socket.emit('signal-offer', { targetId, sdp: pc.localDescription });
-    } catch (e) {
-      console.warn('Initiator offer error:', e);
-    }
+  peerCreationLocks.set(targetId, creationPromise);
+  try {
+    const pc = await creationPromise;
+    return pc;
+  } finally {
+    peerCreationLocks.delete(targetId);
   }
-
-  return pc;
 }
 
 function closePeer(userId) {
   const pc = peers.get(userId);
   if (pc) {
-    pc.close();
+    try { pc.close(); } catch (e) {}
     peers.delete(userId);
   }
   remoteStreams.delete(userId);
   pendingCandidates.delete(userId);
+  peerCreationLocks.delete(userId);
 
   // Remove all audio elements belonging to this peer
   document.querySelectorAll(`audio[data-peer-audio="${userId}"]`).forEach(el => el.remove());
@@ -1213,11 +1256,19 @@ function closePeer(userId) {
   if (tile) tile.remove();
 }
 
-// WebRTC Signaling Handlers (with pending ICE queue & dynamic tile refresh)
+// WebRTC Signaling Handlers (with rollback support & pending ICE queue)
 socket.on('signal-offer', async ({ callerId, sdp }) => {
   await ensureLocalMic();
   const pc = await createPeerConnection(callerId, false);
   try {
+    if (pc.signalingState !== 'stable') {
+      console.log(`[WebRTC] State is ${pc.signalingState}, rolling back for offer from ${callerId}`);
+      try {
+        await pc.setLocalDescription({ type: 'rollback' });
+      } catch (rb) {
+        console.warn('Rollback failed:', rb);
+      }
+    }
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));
     await flushPendingCandidates(callerId);
     const answer = await pc.createAnswer();
@@ -1233,9 +1284,13 @@ socket.on('signal-answer', async ({ callerId, sdp }) => {
   const pc = peers.get(callerId);
   if (pc) {
     try {
-      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-      await flushPendingCandidates(callerId);
-      refreshRemoteStreamTile(callerId);
+      if (pc.signalingState === 'have-local-offer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        await flushPendingCandidates(callerId);
+        refreshRemoteStreamTile(callerId);
+      } else {
+        console.warn(`[WebRTC] Ignored signal-answer from ${callerId} because state is ${pc.signalingState}`);
+      }
     } catch (e) {
       console.error('Error handling answer:', e);
     }
@@ -1294,6 +1349,14 @@ socket.on('user-speaking-change', ({ userId, isSpeaking }) => {
 socket.on('connect', () => {
   console.log('[Socket] Connected/Reconnected:', socket.id);
   if (myUserInfo && myUserInfo.username) {
+    // Cleanly close any stale peer connections from previous session
+    peers.forEach(p => { try { p.close(); } catch (e) {} });
+    peers.clear();
+    remoteStreams.clear();
+    pendingCandidates.clear();
+    peerCreationLocks.clear();
+    document.querySelectorAll('audio[data-peer-audio]').forEach(el => el.remove());
+
     socket.emit('join-discord', {
       username: myUserInfo.username,
       customStatus: myUserInfo.customStatus,
@@ -1568,9 +1631,10 @@ function stopScreenShare() {
 
   peers.forEach(async (pc, targetId) => {
     const senders = pc.getSenders();
-    // Remove stopped screen audio senders
+    // Remove screen audio senders (any audio sender that is not our local microphone)
     senders.forEach(s => {
-      if (s.track && s.track.readyState === 'ended' && s.track.kind === 'audio') {
+      const isNotMic = !localAudioStream || (localAudioStream.getAudioTracks()[0] && s.track !== localAudioStream.getAudioTracks()[0]);
+      if (s.track && s.track.kind === 'audio' && isNotMic) {
         try { pc.removeTrack(s); } catch (e) {}
       }
     });
