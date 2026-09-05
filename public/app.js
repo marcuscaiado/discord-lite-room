@@ -1059,6 +1059,16 @@ function switchView(viewName) {
 
   btnToggleVoiceStage.classList.toggle('active', viewName === 'stage');
   if (dockBtnStage) dockBtnStage.classList.toggle('active', viewName === 'stage');
+
+  // Auto-close any mobile drawers when switching views (e.g. entering stage view)
+  const layout = document.querySelector('.discord-layout');
+  if (layout) {
+    layout.classList.remove('mobile-drawer-open');
+    layout.classList.remove('mobile-members-open');
+  }
+  if (typeof updateVideoGridStreamState === 'function') {
+    updateVideoGridStreamState();
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -1120,13 +1130,19 @@ const mobileDrawerBackdrop = document.getElementById('mobile-drawer-backdrop');
 if (btnMobileDrawer) {
   btnMobileDrawer.addEventListener('click', () => {
     const layout = document.querySelector('.discord-layout');
-    if (layout) layout.classList.toggle('mobile-drawer-open');
+    if (layout) {
+      layout.classList.remove('mobile-members-open');
+      layout.classList.toggle('mobile-drawer-open');
+    }
   });
 }
 if (mobileDrawerBackdrop) {
   mobileDrawerBackdrop.addEventListener('click', () => {
     const layout = document.querySelector('.discord-layout');
-    if (layout) layout.classList.remove('mobile-drawer-open');
+    if (layout) {
+      layout.classList.remove('mobile-drawer-open');
+      layout.classList.remove('mobile-members-open');
+    }
   });
 }
 
@@ -1384,6 +1400,9 @@ function refreshRemoteStreamTile(socketId) {
   if (overlaySpan) {
     overlaySpan.textContent = isScreen ? `📺 ${userName} (Stream)` : userName;
   }
+  if (typeof updateVideoGridStreamState === 'function') {
+    updateVideoGridStreamState();
+  }
 }
 
 // Socket Voice Handlers
@@ -1580,6 +1599,9 @@ function closePeer(userId) {
 
   const tile = document.getElementById(`tile-${userId}`);
   if (tile) tile.remove();
+  if (typeof updateVideoGridStreamState === 'function') {
+    updateVideoGridStreamState();
+  }
 }
 
 // WebRTC Signaling Handlers (with rollback support & pending ICE queue)
@@ -1769,6 +1791,9 @@ socket.on('global-sync', (data) => {
   renderMembersList();
   renderFriendsList();
   renderDirectMessagesList();
+  if (typeof updateVideoGridStreamState === 'function') {
+    updateVideoGridStreamState();
+  }
 });
 
 socket.on('voice-user-state-updated', (data) => {
@@ -1816,12 +1841,20 @@ socket.on('connect', () => {
 // --------------------------------------------------------------------------
 // Video Tiles Management
 // --------------------------------------------------------------------------
+function updateVideoGridStreamState() {
+  if (!videoGrid) return;
+  const hasScreenTile = !!videoGrid.querySelector('.screen-tile');
+  const hasAnyScreen = hasScreenTile || isScreenSharing || Array.from(allUsers.values()).some(u => u.isScreenSharing);
+  videoGrid.classList.toggle('has-active-stream', hasAnyScreen);
+}
+
 function addLocalVideoTile() {
   const existing = document.getElementById('tile-self');
   if (existing) existing.remove();
 
   const tile = createVideoTile('tile-self', (myUserInfo ? myUserInfo.username : 'You') + ' (You)', localAudioStream, true, false, 'self');
   videoGrid.appendChild(tile);
+  updateVideoGridStreamState();
 }
 
 function addRemoteVideoTile(socketId, label, stream) {
@@ -1833,6 +1866,7 @@ function addRemoteVideoTile(socketId, label, stream) {
     const video = tile.querySelector('video');
     if (video) video.srcObject = stream;
   }
+  updateVideoGridStreamState();
 }
 
 function createVideoTile(id, label, stream, isMutedAudio = true, isScreen = false, socketId = null) {
@@ -1884,11 +1918,26 @@ function createVideoTile(id, label, stream, isMutedAudio = true, isScreen = fals
   const fsBtn = tile.querySelector('.btn-fs');
   fsBtn.onclick = (e) => {
     e.stopPropagation();
-    if (!document.fullscreenElement) {
-      tile.requestFullscreen().catch(() => {});
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      if (tile.requestFullscreen) {
+        tile.requestFullscreen().catch(() => {
+          if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+        });
+      } else if (video.webkitEnterFullscreen) {
+        video.webkitEnterFullscreen();
+      }
     } else {
-      document.exitFullscreen().catch(() => {});
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      }
     }
+  };
+
+  video.ondblclick = (e) => {
+    e.stopPropagation();
+    fsBtn.click();
   };
 
   return tile;
@@ -2060,6 +2109,9 @@ async function activateLocalScreenStream(stream, isMobileCam = false) {
   if (existingTile) existingTile.remove();
   videoGrid.prepend(screenTile);
   switchView('stage');
+  if (typeof updateVideoGridStreamState === 'function') {
+    updateVideoGridStreamState();
+  }
 
   isScreenSharing = true;
   updateScreenSharingUI(true);
@@ -2169,6 +2221,9 @@ function stopScreenShare() {
   }
   const screenTile = document.getElementById('tile-screen-self');
   if (screenTile) screenTile.remove();
+  if (typeof updateVideoGridStreamState === 'function') {
+    updateVideoGridStreamState();
+  }
 
   peers.forEach(async (pc, targetId) => {
     ensureMasterAudioOnPeer(pc);
@@ -2500,8 +2555,19 @@ document.addEventListener('click', (e) => {
 // Members Sidebar & User Popout
 // --------------------------------------------------------------------------
 btnToggleMembers.addEventListener('click', () => {
-  membersSidebar.classList.toggle('hidden');
-  btnToggleMembers.classList.toggle('active', !membersSidebar.classList.contains('hidden'));
+  const isMobile = window.innerWidth <= 768;
+  const layout = document.querySelector('.discord-layout');
+  if (isMobile) {
+    if (layout) {
+      layout.classList.remove('mobile-drawer-open');
+      const willOpen = !layout.classList.contains('mobile-members-open');
+      layout.classList.toggle('mobile-members-open', willOpen);
+      btnToggleMembers.classList.toggle('active', willOpen);
+    }
+  } else {
+    membersSidebar.classList.toggle('hidden');
+    btnToggleMembers.classList.toggle('active', !membersSidebar.classList.contains('hidden'));
+  }
 });
 
 function renderMembersList() {

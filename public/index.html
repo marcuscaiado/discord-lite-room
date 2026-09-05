@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Discord - Full Web Edition</title>
-  <link rel="stylesheet" href="style.css?v=3.0">
+  <link rel="stylesheet" href="style.css?v=3.2">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=gg+sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="/socket.io/socket.io.js"></script>
@@ -232,12 +232,12 @@
           <!-- Voice Channel Stage Toggle Button -->
           <button id="btn-toggle-voice-stage" class="top-action-btn" title="Toggle Voice/Screen Stage">
             <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h2v7H7zm4-3h2v10h-2zm4 6h2v4h-2z"/></svg>
-            <span>Watch Stage</span>
+            <span class="btn-text">Watch Stage</span>
           </button>
 
           <!-- Share / Invite Link Button -->
           <button id="btn-copy-invite" class="top-action-btn highlight-invite" title="Copy link to send to your friend">
-            <span>🔗 Invite Link</span>
+            <span class="btn-text">🔗 Invite Link</span>
           </button>
           
           <button id="btn-toggle-members" class="top-action-btn active" title="Member List">
@@ -696,6 +696,6 @@
   </div>
 
   <!-- Audio elements & Scripts -->
-  <script src="app.js?v=3.0"></script>
+  <script src="app.js?v=3.2"></script>
 </body>
 </html>
