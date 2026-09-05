@@ -937,9 +937,9 @@ function switchTextChannel(channelId) {
 // --------------------------------------------------------------------------
 function switchView(viewName) {
   activeView = viewName;
-  viewChat.classList.remove('active');
-  viewStage.classList.remove('active');
-  viewFriends.classList.remove('active');
+  viewChat.classList.remove('active', 'hidden');
+  viewStage.classList.remove('active', 'hidden');
+  viewFriends.classList.remove('active', 'hidden');
 
   if (viewName === 'chat') {
     viewChat.classList.add('active');
@@ -1424,6 +1424,9 @@ socket.on('stream-started', ({ id, username }) => {
     createPeerConnection(id, false);
   }
   refreshRemoteStreamTile(id);
+  if (currentVoiceChannelId) {
+    switchView('stage');
+  }
   if (liveStreamBar) {
     liveStreamBar.classList.remove('hidden');
     if (liveStreamText) liveStreamText.textContent = `📺 ${username} is sharing their screen!`;
@@ -1530,8 +1533,14 @@ function createVideoTile(id, label, stream, isMutedAudio = true, isScreen = fals
   video.muted = true; // Video element in grid is muted to prevent audio collision with dedicated player!
   if (stream) {
     video.srcObject = stream;
-    const hasVideo = stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled;
+    const vTracks = stream.getVideoTracks();
+    const hasVideo = vTracks.length > 0;
     tile.classList.toggle('has-video', hasVideo);
+    if (hasVideo) {
+      video.play().catch(e => console.warn('Autoplay video note:', e));
+      vTracks[0].onunmute = () => { tile.classList.add('has-video'); video.play().catch(() => {}); };
+      vTracks[0].onended = () => { tile.classList.remove('has-video'); };
+    }
   }
 
   const maxBtn = tile.querySelector('.btn-max');
@@ -1723,6 +1732,7 @@ btnScreen.addEventListener('click', async () => {
       // Show local screen tile
       const screenTile = createVideoTile('tile-screen-self', 'Your Stream (1080p)', new MediaStream([screenVideoTrack]), true, true, 'self');
       videoGrid.prepend(screenTile);
+      switchView('stage');
 
       isScreenSharing = true;
       btnScreen.classList.add('danger');

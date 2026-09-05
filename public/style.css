@@ -886,10 +886,12 @@ body {
   height: calc(100vh - 48px);
   overflow: hidden;
   flex-direction: column;
+  position: relative;
+  width: 100%;
 }
 
 .content-view.active {
-  display: flex;
+  display: flex !important;
 }
 
 /* Chat Messages Feed */
