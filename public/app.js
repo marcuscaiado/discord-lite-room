@@ -759,6 +759,7 @@ btnGuildHome.addEventListener('click', () => {
   document.querySelectorAll('.guild-item').forEach(i => i.classList.remove('active'));
   btnGuildHome.classList.add('active');
 
+  closeServerDropdown();
   serverHeader.classList.add('hidden');
   channelsContainer.classList.add('hidden');
   dmHeader.classList.remove('hidden');
@@ -770,6 +771,7 @@ btnGuildHome.addEventListener('click', () => {
 });
 
 function switchServer(serverId) {
+  closeServerDropdown();
   currentServerId = serverId;
   activeView = 'chat';
 
@@ -1890,6 +1892,7 @@ document.addEventListener('click', (e) => {
   }
   if (!serverDropdownMenu.contains(e.target) && !serverHeader.contains(e.target)) {
     serverDropdownMenu.classList.add('hidden');
+    serverHeader.classList.remove('menu-open');
   }
 });
 
@@ -2068,26 +2071,55 @@ function startDirectMessage(recipientId) {
 // --------------------------------------------------------------------------
 // Modals: Create Server, Create Channel, User Settings
 // --------------------------------------------------------------------------
-serverHeader.addEventListener('click', () => {
-  serverDropdownMenu.classList.toggle('hidden');
+function closeServerDropdown() {
+  serverDropdownMenu.classList.add('hidden');
+  serverHeader.classList.remove('menu-open');
+}
+
+serverHeader.addEventListener('click', (e) => {
+  if (serverDropdownMenu.contains(e.target)) return;
+  const isOpening = serverDropdownMenu.classList.contains('hidden');
+  serverDropdownMenu.classList.toggle('hidden', !isOpening);
+  serverHeader.classList.toggle('menu-open', isOpening);
 });
 
-document.getElementById('menu-create-channel').addEventListener('click', () => {
-  serverDropdownMenu.classList.add('hidden');
-  const srv = servers.find(s => s.id === currentServerId);
-  openCreateChannelModal(srv ? srv.categories[0].id : null);
-});
+const menuCreateChannel = document.getElementById('menu-create-channel');
+if (menuCreateChannel) {
+  menuCreateChannel.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeServerDropdown();
+    const srv = servers.find(s => s.id === currentServerId);
+    openCreateChannelModal(srv ? srv.categories[0].id : null);
+  });
+}
 
-document.getElementById('menu-invite-people').addEventListener('click', () => {
-  serverDropdownMenu.classList.add('hidden');
-  navigator.clipboard.writeText(window.location.href);
-  showToast('📋 Invite link copied to clipboard!');
-});
+const menuInvitePeople = document.getElementById('menu-invite-people');
+if (menuInvitePeople) {
+  menuInvitePeople.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeServerDropdown();
+    navigator.clipboard.writeText(window.location.href);
+    showToast('📋 Invite link copied to clipboard!');
+  });
+}
 
-document.getElementById('menu-server-settings').addEventListener('click', () => {
-  serverDropdownMenu.classList.add('hidden');
-  showToast('⚙️ Server Settings: 1080p WebRTC enabled, Public Access OK');
-});
+const menuServerSettings = document.getElementById('menu-server-settings');
+if (menuServerSettings) {
+  menuServerSettings.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeServerDropdown();
+    showToast('⚙️ Server Settings: 1080p WebRTC enabled, Public Access OK');
+  });
+}
+
+const menuLeaveServer = document.getElementById('menu-leave-server');
+if (menuLeaveServer) {
+  menuLeaveServer.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeServerDropdown();
+    showToast('Cannot leave default server');
+  });
+}
 
 let currentTargetCategoryId = null;
 function openCreateChannelModal(categoryId) {
