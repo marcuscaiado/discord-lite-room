@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Discord - Full Web Edition</title>
-  <link rel="stylesheet" href="style.css?v=2.9">
+  <link rel="stylesheet" href="style.css?v=3.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=gg+sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="/socket.io/socket.io.js"></script>
@@ -198,11 +198,18 @@
       </div>
     </aside>
 
+    <!-- Mobile Drawer Backdrop -->
+    <div id="mobile-drawer-backdrop" class="mobile-drawer-backdrop"></div>
+
     <!-- COLUMN 3: Chat / Video Stage / Friends Area -->
     <main class="main-content-area">
       <!-- Top Channel Bar -->
       <header class="channel-top-bar">
         <div class="channel-top-left">
+          <!-- Mobile Drawer Toggle Button -->
+          <button id="btn-mobile-drawer" class="mobile-drawer-btn" title="Open Servers & Channels">
+            <svg width="22" height="22" viewBox="0 0 24 24"><path fill="currentColor" d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+          </button>
           <span class="channel-top-icon" id="top-bar-icon">#</span>
           <h3 class="channel-top-title" id="top-bar-title">general-chat</h3>
           <span class="channel-top-divider"></span>
@@ -689,6 +696,6 @@
   </div>
 
   <!-- Audio elements & Scripts -->
-  <script src="app.js?v=2.9"></script>
+  <script src="app.js?v=3.0"></script>
 </body>
 </html>
