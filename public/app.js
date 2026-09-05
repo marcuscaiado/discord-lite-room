@@ -97,6 +97,7 @@ const dockAvatarBtn = document.getElementById('dock-avatar-btn');
 const topBarIcon = document.getElementById('top-bar-icon');
 const topBarTitle = document.getElementById('top-bar-title');
 const topBarTopic = document.getElementById('top-bar-topic');
+const btnCopyInvite = document.getElementById('btn-copy-invite');
 const btnToggleVoiceStage = document.getElementById('btn-toggle-voice-stage');
 const btnToggleMembers = document.getElementById('btn-toggle-members');
 const membersSidebar = document.getElementById('members-sidebar');
@@ -547,7 +548,16 @@ socket.on('discord-init', (data) => {
   renderChatMessages();
 
   playDiscordSound('discord-join');
-  showToast(`⚡ Connected to Discord Live as ${myUserInfo.username}!`);
+  showToast(`⚡ Connected to Discord Live as ${myUserInfo.username}! Connecting to room...`);
+
+  // Auto-connect to voice & stage immediately so you and your friend speak with zero extra clicks
+  const urlParams = new URLSearchParams(window.location.search);
+  const requestedRoom = urlParams.get('room');
+  if (requestedRoom) {
+    connectVoiceChannel(requestedRoom);
+  } else {
+    connectVoiceChannel('v-lounge');
+  }
 });
 
 socket.on('user-presence-update', (user) => {
@@ -1887,5 +1897,20 @@ document.getElementById('test-ring-sound').addEventListener('click', () => playD
 document.getElementById('btn-settings-logout').addEventListener('click', () => {
   window.location.reload();
 });
+
+if (btnCopyInvite) {
+  btnCopyInvite.addEventListener('click', () => {
+    const inviteUrl = window.location.href;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(inviteUrl).then(() => {
+        showToast('📋 Link copied! Send this URL to your friend.');
+      }).catch(() => {
+        prompt('Copy your invite link:', inviteUrl);
+      });
+    } else {
+      prompt('Copy your invite link:', inviteUrl);
+    }
+  });
+}
 
 console.log('⚡ Discord Full Web Engine loaded successfully.');

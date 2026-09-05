@@ -683,6 +683,15 @@ body {
   background-color: var(--bg-hover);
 }
 
+.top-action-btn.highlight-invite {
+  background-color: var(--brand);
+  color: #ffffff;
+  font-weight: 700;
+}
+.top-action-btn.highlight-invite:hover {
+  background-color: var(--brand-hover);
+}
+
 .search-bar-box {
   background-color: var(--bg-tertiary);
   border-radius: 4px;
