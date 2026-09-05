@@ -43,8 +43,8 @@ const defaultServers = [
         name: 'VOICE & STREAMS',
         channels: [
           { id: 'v-lounge', name: 'Lounge (1080p)', type: 'voice', userLimit: 0 },
-          { id: 'v-squad1', name: 'Squad 1', type: 'voice', userLimit: 5 },
-          { id: 'v-radio', name: 'Late Night Radio', type: 'voice', userLimit: 10 }
+          { id: 'v-squad1', name: 'Squad 1', type: 'voice', userLimit: 15 },
+          { id: 'v-radio', name: 'Late Night Radio', type: 'voice', userLimit: 25 }
         ]
       }
     ]
@@ -68,9 +68,9 @@ const defaultServers = [
         id: 'cat-voice-gaming',
         name: 'VOICE CHANNELS',
         channels: [
-          { id: 'v-cs2', name: 'CS2 Competitive', type: 'voice', userLimit: 5 },
-          { id: 'v-val', name: 'Valorant Ranked', type: 'voice', userLimit: 5 },
-          { id: 'v-chill', name: 'Chill Duo', type: 'voice', userLimit: 2 }
+          { id: 'v-cs2', name: 'CS2 Competitive', type: 'voice', userLimit: 15 },
+          { id: 'v-val', name: 'Valorant Ranked', type: 'voice', userLimit: 15 },
+          { id: 'v-chill', name: 'Chill Duo', type: 'voice', userLimit: 15 }
         ]
       }
     ]
@@ -93,7 +93,7 @@ const defaultServers = [
         id: 'cat-voice-dev',
         name: 'VOICE ROOMS',
         channels: [
-          { id: 'v-pair', name: 'Pair Programming', type: 'voice', userLimit: 4 },
+          { id: 'v-pair', name: 'Pair Programming', type: 'voice', userLimit: 15 },
           { id: 'v-techtalk', name: 'Tech Talk & Demo', type: 'voice', userLimit: 0 }
         ]
       }
@@ -177,6 +177,31 @@ function getTimestamp() {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+// --------------------------------------------------------------------------
+// Real-Time High-Frequency State Synchronization (1000ms Global Heartbeat)
+// --------------------------------------------------------------------------
+function getGlobalSyncPayload() {
+  return {
+    timestamp: Date.now(),
+    users: Array.from(users.values()),
+    voiceMembers: Array.from(voiceChannelMembers.entries()).map(([cid, set]) => [cid, Array.from(set)]),
+    activeStreams: Array.from(users.values())
+      .filter(u => u.isScreenSharing && u.currentVoiceChannelId)
+      .map(u => ({
+        id: u.id,
+        username: u.username,
+        channelId: u.currentVoiceChannelId
+      }))
+  };
+}
+
+function broadcastGlobalSync() {
+  io.emit('global-sync', getGlobalSyncPayload());
+}
+
+// Global 1000ms heartbeat ensuring all 10+ users are 100% in sync without refresh
+setInterval(broadcastGlobalSync, 1000);
+
 io.on('connection', (socket) => {
   console.log(`[Connect] Socket ID: ${socket.id}`);
 
@@ -213,6 +238,7 @@ io.on('connection', (socket) => {
 
     // Broadcast user joined / updated
     io.emit('user-presence-update', userInfo);
+    broadcastGlobalSync();
     console.log(`[Discord Join] ${userInfo.username}${userInfo.tag} (${socket.id}) connected.`);
   });
 
@@ -222,6 +248,7 @@ io.on('connection', (socket) => {
     if (user) {
       Object.assign(user, data);
       io.emit('user-presence-update', user);
+      broadcastGlobalSync();
     }
   });
 
@@ -476,6 +503,25 @@ io.on('connection', (socket) => {
       members: Array.from(voiceChannelMembers.get(channelId))
     });
 
+    // Zero-Refresh Stream Synchronization:
+    // If any participant in this room is already sharing their screen, immediately trigger
+    // the streamer to offer their screen to the new joiner, and notify the new joiner of the active stream!
+    peersInRoom.forEach(peer => {
+      if (peer.isScreenSharing) {
+        console.log(`[Stream Sync] Triggering streamer ${peer.username} (${peer.id}) to push stream to joiner ${user.username} (${socket.id})`);
+        io.to(peer.id).emit('peer-needs-stream', {
+          peerId: socket.id,
+          peerUsername: user.username
+        });
+        socket.emit('stream-started', {
+          id: peer.id,
+          username: peer.username,
+          channelId
+        });
+      }
+    });
+
+    broadcastGlobalSync();
     console.log(`[Voice Join] ${user.username} entered voice channel ${channelId}`);
   });
 
@@ -511,6 +557,7 @@ io.on('connection', (socket) => {
       members: voiceChannelMembers.has(channelId) ? Array.from(voiceChannelMembers.get(channelId)) : []
     });
 
+    broadcastGlobalSync();
     console.log(`[Voice Leave] ${user.username} left voice channel ${channelId}`);
   }
 
@@ -536,6 +583,16 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Client requests a stream directly from a streamer (self-healing zero-refresh sync)
+  socket.on('request-peer-stream', ({ streamerId }) => {
+    const user = users.get(socket.id);
+    console.log(`[Stream Request] ${user ? user.username : socket.id} requesting stream from ${streamerId}`);
+    io.to(streamerId).emit('peer-needs-stream', {
+      peerId: socket.id,
+      peerUsername: user ? user.username : 'User'
+    });
+  });
+
   // Media state changes (Mute, Camera, Screen Share)
   socket.on('media-state-change', (data) => {
     const user = users.get(socket.id);
@@ -548,6 +605,7 @@ io.on('connection', (socket) => {
         });
       }
       io.emit('user-presence-update', user);
+      broadcastGlobalSync();
     }
   });
 
@@ -561,6 +619,7 @@ io.on('connection', (socket) => {
         ...data
       });
       io.emit('user-presence-update', user);
+      broadcastGlobalSync();
       console.log(`[Screen Stream] ${user.username} started sharing screen in ${user.currentVoiceChannelId}`);
     }
   });
@@ -574,6 +633,7 @@ io.on('connection', (socket) => {
         username: user.username
       });
       io.emit('user-presence-update', user);
+      broadcastGlobalSync();
       console.log(`[Screen Stream] ${user.username} stopped sharing screen in ${user.currentVoiceChannelId}`);
     }
   });
@@ -598,6 +658,7 @@ io.on('connection', (socket) => {
       }
       users.delete(socket.id);
       io.emit('user-disconnected', { id: socket.id, username: user.username });
+      broadcastGlobalSync();
       console.log(`[Disconnect] ${user.username} disconnected.`);
     }
   });

@@ -67,10 +67,14 @@ let streamResolution = '1080';
 let streamFps = '30';
 let soundVolume = 0.8;
 
-// Audio DSP & Synthesis
+// Web Audio Master Mixer & DSP
 let audioCtx = null;
+let masterMixDestination = null;
+let masterAudioTrack = null;
 let micSourceNode = null;
-let noiseGateGain = null;
+let micGainNode = null;
+let screenAudioSourceNode = null;
+let screenGainNode = null;
 let noiseAnalyser = null;
 let gateInterval = null;
 const GATE_THRESHOLD = 0.022;
@@ -416,10 +420,121 @@ function unlockAllAudio() {
   window.addEventListener(evt, unlockAllAudio, { passive: true });
 });
 
+function getAudioContext() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  if (!audioCtx || audioCtx.state === 'closed') {
+    try {
+      audioCtx = new AudioContextClass({ latencyHint: 'interactive', sampleRate: 48000 });
+    } catch (e) {
+      audioCtx = new AudioContextClass();
+    }
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
+  return audioCtx;
+}
+
+function initMasterAudioMixer() {
+  const ctx = getAudioContext();
+  if (!ctx) return null;
+
+  if (!masterMixDestination) {
+    masterMixDestination = ctx.createMediaStreamDestination();
+    const tracks = masterMixDestination.stream.getAudioTracks();
+    if (tracks.length > 0) {
+      masterAudioTrack = tracks[0];
+      masterAudioTrack.enabled = true;
+    }
+  }
+  return masterMixDestination;
+}
+
+function getMasterAudioTrack() {
+  if (masterAudioTrack && masterAudioTrack.readyState === 'live') {
+    return masterAudioTrack;
+  }
+  initMasterAudioMixer();
+  if (masterAudioTrack && masterAudioTrack.readyState === 'live') {
+    return masterAudioTrack;
+  }
+  return localAudioStream ? localAudioStream.getAudioTracks()[0] : null;
+}
+
+function attachScreenAudioToMixer(screenStream) {
+  const audioTracks = screenStream ? screenStream.getAudioTracks() : [];
+  if (!audioTracks || audioTracks.length === 0) {
+    console.log('[Audio Mixer] Screen share has no audio track.');
+    return false;
+  }
+
+  const screenAudioTrack = audioTracks[0];
+  console.log(`[Audio Mixer] 🔊 Attaching screen audio track (${screenAudioTrack.id}) to Master Mixer`);
+
+  const ctx = getAudioContext();
+  if (!ctx) return false;
+
+  initMasterAudioMixer();
+
+  if (screenGainNode) {
+    try { screenGainNode.disconnect(); } catch (e) {}
+    screenGainNode = null;
+  }
+  if (screenAudioSourceNode) {
+    try { screenAudioSourceNode.disconnect(); } catch (e) {}
+    screenAudioSourceNode = null;
+  }
+
+  try {
+    screenAudioSourceNode = ctx.createMediaStreamSource(new MediaStream([screenAudioTrack]));
+    screenGainNode = ctx.createGain();
+    screenGainNode.gain.value = 1.0;
+    screenAudioSourceNode.connect(screenGainNode);
+    screenGainNode.connect(masterMixDestination);
+    console.log('[Audio Mixer] ✅ Screen audio mixed into Master Audio stream!');
+    return true;
+  } catch (err) {
+    console.warn('[Audio Mixer] Error mixing screen audio track:', err);
+    return false;
+  }
+}
+
+function detachScreenAudioFromMixer() {
+  if (screenGainNode) {
+    try { screenGainNode.disconnect(); } catch (e) {}
+    screenGainNode = null;
+  }
+  if (screenAudioSourceNode) {
+    try { screenAudioSourceNode.disconnect(); } catch (e) {}
+    screenAudioSourceNode = null;
+  }
+  console.log('[Audio Mixer] Screen audio detached from Master Mixer.');
+}
+
+function ensureMasterAudioOnPeer(pc) {
+  const track = getMasterAudioTrack();
+  if (!track) return;
+  const senders = pc.getSenders();
+  const audioSender = senders.find(s => s.track && s.track.kind === 'audio') ||
+                      senders.find(s => !s.track);
+  if (audioSender) {
+    audioSender.replaceTrack(track).catch(e => console.warn('replaceTrack audio error:', e));
+  } else {
+    try {
+      const streamToSend = masterMixDestination ? masterMixDestination.stream : localAudioStream;
+      pc.addTrack(track, streamToSend);
+    } catch (e) {
+      console.warn('addTrack master audio error:', e);
+    }
+  }
+}
+
 async function ensureLocalMic() {
   if (localAudioStream && localAudioStream.getAudioTracks().length > 0 && localAudioStream.getAudioTracks()[0].readyState === 'live') {
     const track = localAudioStream.getAudioTracks()[0];
     track.enabled = !isMuted;
+    if (micGainNode) micGainNode.gain.value = isMuted ? 0 : 1;
     return localAudioStream;
   }
 
@@ -436,29 +551,14 @@ async function ensureLocalMic() {
     localAudioStream = rawStream;
     const audioTrack = rawStream.getAudioTracks()[0];
     if (audioTrack) {
-      audioTrack.enabled = !isMuted;
+      audioTrack.enabled = true;
     }
 
     setupAudioDSP(rawStream);
 
     // Update tracks on any active WebRTC peer connections
-    peers.forEach(async (pc, targetId) => {
-      const senders = pc.getSenders();
-      const audioSender = senders.find(s => s.track && s.track.kind === 'audio') ||
-                          senders.find(s => !s.track);
-      if (audioSender && audioTrack) {
-        try {
-          await audioSender.replaceTrack(audioTrack);
-        } catch (e) {
-          console.warn('replaceTrack audio error:', e);
-        }
-      } else if (audioTrack) {
-        try {
-          pc.addTrack(audioTrack, rawStream);
-        } catch (e) {
-          console.warn('addTrack audio error:', e);
-        }
-      }
+    peers.forEach((pc) => {
+      ensureMasterAudioOnPeer(pc);
     });
 
     return localAudioStream;
@@ -472,23 +572,29 @@ async function ensureLocalMic() {
 
 function setupAudioDSP(rawStream) {
   try {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) return rawStream;
+    const ctx = getAudioContext();
+    if (!ctx) return rawStream;
 
-    if (!audioCtx || audioCtx.state === 'closed') {
-      audioCtx = new AudioContextClass();
-    }
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(() => {});
-    }
+    initMasterAudioMixer();
 
+    if (micGainNode) {
+      try { micGainNode.disconnect(); } catch (e) {}
+      micGainNode = null;
+    }
     if (micSourceNode) {
       try { micSourceNode.disconnect(); } catch (e) {}
+      micSourceNode = null;
     }
-    micSourceNode = audioCtx.createMediaStreamSource(rawStream);
+
+    micSourceNode = ctx.createMediaStreamSource(rawStream);
+    micGainNode = ctx.createGain();
+    micGainNode.gain.value = isMuted ? 0 : 1;
+
+    micSourceNode.connect(micGainNode);
+    micGainNode.connect(masterMixDestination);
 
     // RMS Analyser for settings VU meter & speaking ring (does NOT mute outgoing audio!)
-    noiseAnalyser = audioCtx.createAnalyser();
+    noiseAnalyser = ctx.createAnalyser();
     noiseAnalyser.fftSize = 512;
     micSourceNode.connect(noiseAnalyser);
 
@@ -1192,6 +1298,15 @@ socket.on('voice-channel-joined', async ({ channelId, participants }) => {
     allUsers.set(p.id, p);
     refreshRemoteStreamTile(p.id);
     await createPeerConnection(p.id, true);
+
+    // Zero-Refresh Stream Detection: If any existing member is streaming, show banner & stage
+    if (p.isScreenSharing) {
+      if (liveStreamBar) {
+        liveStreamBar.classList.remove('hidden');
+        if (liveStreamText) liveStreamText.textContent = `📺 ${p.username} is sharing their screen!`;
+      }
+      switchView('stage');
+    }
   }
 });
 
@@ -1201,8 +1316,32 @@ socket.on('voice-user-joined', async ({ channelId, user }) => {
   showToast(`👤 ${user.username} joined voice.`);
 
   await ensureLocalMic();
-  // Show their tile immediately; incoming signal-offer from joining user will answer connection
   refreshRemoteStreamTile(user.id);
+
+  // If local user is currently sharing screen, immediately push stream tracks to this new user!
+  if (isScreenSharing && localScreenStream) {
+    const screenVideoTrack = localScreenStream.getVideoTracks()[0];
+    if (screenVideoTrack) {
+      console.log(`[Streamer] Directly pushing screen stream to newly joined peer ${user.username} (${user.id})`);
+      const pc = await createPeerConnection(user.id, true);
+      const senders = pc.getSenders();
+      const videoSender = senders.find(s => s.track && s.track.kind === 'video') ||
+                          senders.find(s => !s.track);
+      if (videoSender) {
+        await videoSender.replaceTrack(screenVideoTrack);
+      } else {
+        pc.addTrack(screenVideoTrack, localScreenStream);
+      }
+      ensureMasterAudioOnPeer(pc);
+      try {
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+        await pc.setLocalDescription(offer);
+        socket.emit('signal-offer', { targetId: user.id, sdp: pc.localDescription });
+      } catch (e) {
+        console.warn('Error pushing stream to new joiner:', e);
+      }
+    }
+  }
 });
 
 socket.on('voice-user-left', ({ userId, username }) => {
@@ -1229,11 +1368,10 @@ async function createPeerConnection(targetId, isInitiator) {
     const pc = new RTCPeerConnection(rtcConfig);
     peers.set(targetId, pc);
 
-    // 1. Add local audio track or audio transceiver
-    if (localAudioStream && localAudioStream.getAudioTracks()[0]) {
-      const track = localAudioStream.getAudioTracks()[0];
-      track.enabled = !isMuted;
-      pc.addTrack(track, localAudioStream);
+    // 1. Add local audio track from Master Mixer (crystal-clear voice + mixed stream audio)
+    const masterTrack = getMasterAudioTrack();
+    if (masterTrack) {
+      pc.addTrack(masterTrack, masterMixDestination ? masterMixDestination.stream : localAudioStream);
     } else {
       pc.addTransceiver('audio', { direction: 'sendrecv' });
     }
@@ -1245,11 +1383,6 @@ async function createPeerConnection(targetId, isInitiator) {
       pc.addTrack(currentVideoTrack, localScreenStream || localVideoStream);
     } else {
       pc.addTransceiver('video', { direction: 'sendrecv' });
-    }
-
-    // 3. Add screen audio track if already sharing screen
-    if (localScreenStream && localScreenStream.getAudioTracks()[0]) {
-      pc.addTrack(localScreenStream.getAudioTracks()[0], localScreenStream);
     }
 
     pc.onicecandidate = (event) => {
@@ -1445,6 +1578,110 @@ socket.on('stream-stopped', ({ id, username }) => {
   showToast(`📺 ${username} stopped screen share.`);
 });
 
+// Streamer responds when a peer needs our screen stream (late joiners or auto-sync)
+socket.on('peer-needs-stream', async ({ peerId, peerUsername }) => {
+  console.log(`[Streamer] Peer ${peerUsername} (${peerId}) needs our stream!`);
+  if (!isScreenSharing || !localScreenStream) return;
+
+  const screenVideoTrack = localScreenStream.getVideoTracks()[0];
+  if (!screenVideoTrack) return;
+
+  try {
+    const pc = await createPeerConnection(peerId, true);
+    const senders = pc.getSenders();
+    const videoSender = senders.find(s => s.track && s.track.kind === 'video') ||
+                        senders.find(s => !s.track);
+    if (videoSender) {
+      await videoSender.replaceTrack(screenVideoTrack);
+    } else {
+      pc.addTrack(screenVideoTrack, localScreenStream);
+    }
+
+    ensureMasterAudioOnPeer(pc);
+
+    const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+    await pc.setLocalDescription(offer);
+    socket.emit('signal-offer', { targetId: peerId, sdp: pc.localDescription });
+    console.log(`[Streamer] Successfully sent live stream offer to peer ${peerId}`);
+  } catch (err) {
+    console.warn('[Streamer] Error sending stream offer to peer:', err);
+  }
+});
+
+// High-Frequency 1000ms Global Sync Heartbeat Reconciler (Guaranteed instant sync across 10+ users)
+let lastStreamRequestTime = 0;
+
+socket.on('global-sync', (data) => {
+  if (!data) return;
+
+  // 1. Reconcile allUsers map
+  const activeIds = new Set();
+  if (Array.isArray(data.users)) {
+    data.users.forEach(u => {
+      activeIds.add(u.id);
+      const existing = allUsers.get(u.id);
+      if (existing) {
+        Object.assign(existing, u);
+      } else {
+        allUsers.set(u.id, u);
+      }
+    });
+
+    // Remove users who have disconnected
+    for (const [id] of allUsers) {
+      if (!activeIds.has(id) && id !== socket.id) {
+        allUsers.delete(id);
+        closePeer(id);
+      }
+    }
+  }
+
+  // 2. Reconcile voice channel memberships
+  if (Array.isArray(data.voiceMembers)) {
+    data.voiceMembers.forEach(([cid, memberArr]) => {
+      voiceMembers.set(cid, new Set(memberArr));
+    });
+    renderVoiceNestedMembers();
+  }
+
+  // 3. Reconcile active screen streams in current voice room
+  if (currentVoiceChannelId && Array.isArray(data.activeStreams)) {
+    const activeStreamer = data.activeStreams.find(s => s.channelId === currentVoiceChannelId && s.id !== socket.id);
+    if (activeStreamer) {
+      if (liveStreamBar) {
+        liveStreamBar.classList.remove('hidden');
+        if (liveStreamText) liveStreamText.textContent = `📺 ${activeStreamer.username} is sharing their screen!`;
+      }
+      const streamerUser = allUsers.get(activeStreamer.id);
+      if (streamerUser) streamerUser.isScreenSharing = true;
+
+      // Check if we already have an active video stream for this streamer
+      const remoteStream = remoteStreams.get(activeStreamer.id);
+      const hasLiveVideo = remoteStream && remoteStream.getVideoTracks().some(t => t.readyState === 'live' && t.enabled);
+
+      if (!hasLiveVideo) {
+        const now = Date.now();
+        // Request stream from streamer if not received yet (throttled every 3s)
+        if (now - lastStreamRequestTime > 3000) {
+          lastStreamRequestTime = now;
+          console.log(`[Global Sync] Auto-requesting screen stream from ${activeStreamer.username} (${activeStreamer.id})`);
+          socket.emit('request-peer-stream', { streamerId: activeStreamer.id });
+        }
+      } else {
+        refreshRemoteStreamTile(activeStreamer.id);
+      }
+    } else {
+      if (!isScreenSharing && liveStreamBar) {
+        liveStreamBar.classList.add('hidden');
+      }
+    }
+  }
+
+  renderMembersList();
+  renderFriendsList();
+  renderDirectMessagesList();
+});
+
 socket.on('voice-user-state-updated', (data) => {
   const u = allUsers.get(data.id);
   if (u) {
@@ -1571,6 +1808,9 @@ btnMic.addEventListener('click', toggleMic);
 
 function toggleMic() {
   isMuted = !isMuted;
+  if (micGainNode) {
+    micGainNode.gain.value = isMuted ? 0 : 1;
+  }
   if (localAudioStream) {
     localAudioStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
   }
@@ -1695,17 +1935,23 @@ btnScreen.addEventListener('click', async () => {
         audio: {
           echoCancellation: false,
           noiseSuppression: false,
-          autoGainControl: false
-        }
+          autoGainControl: false,
+          channelCount: 2,
+          sampleRate: 48000
+        },
+        systemAudio: 'include',
+        selfBrowserSurface: 'include'
       });
 
       const screenVideoTrack = localScreenStream.getVideoTracks()[0];
-      const screenAudioTrack = localScreenStream.getAudioTracks()[0] || null;
+      const hasAudioTrack = attachScreenAudioToMixer(localScreenStream);
 
       screenVideoTrack.onended = stopScreenShare;
 
-      // Attach both screen video AND screen audio to all peer connections
+      // Attach screen video AND ensure mixed audio is transmitted to all peers
       peers.forEach(async (pc, targetId) => {
+        ensureMasterAudioOnPeer(pc);
+
         const senders = pc.getSenders();
         const videoSender = senders.find(s => s.track && s.track.kind === 'video') ||
                             senders.find(s => !s.track);
@@ -1713,11 +1959,6 @@ btnScreen.addEventListener('click', async () => {
           await videoSender.replaceTrack(screenVideoTrack);
         } else {
           pc.addTrack(screenVideoTrack, localScreenStream);
-        }
-
-        // Transmit screen audio track if tab / system audio was shared
-        if (screenAudioTrack) {
-          pc.addTrack(screenAudioTrack, localScreenStream);
         }
 
         try {
@@ -1748,9 +1989,9 @@ btnScreen.addEventListener('click', async () => {
         liveStreamBar.classList.remove('hidden');
         if (liveStreamText) liveStreamText.textContent = '📺 You are sharing your screen!';
       }
-      socket.emit('stream-started', { resolution: streamResolution, fps: streamFps, hasAudio: !!screenAudioTrack });
+      socket.emit('stream-started', { resolution: streamResolution, fps: streamFps, hasAudio: hasAudioTrack });
       socket.emit('media-state-change', { isScreenSharing: true });
-      showToast(screenAudioTrack ? '📺 1080p Stream Started (with Tab Audio 🔊)' : '📺 1080p Stream Started');
+      showToast(hasAudioTrack ? '📺 1080p Stream Started (with Tab Audio 🔊)' : '📺 1080p Stream Started! 💡 Tip: check "Share audio" in popup to stream sound');
     } catch (e) {
       console.warn('Screen share canceled or denied:', e);
     }
@@ -1760,6 +2001,8 @@ btnScreen.addEventListener('click', async () => {
 });
 
 function stopScreenShare() {
+  detachScreenAudioFromMixer();
+
   if (localScreenStream) {
     localScreenStream.getTracks().forEach(t => t.stop());
     localScreenStream = null;
@@ -1768,15 +2011,9 @@ function stopScreenShare() {
   if (screenTile) screenTile.remove();
 
   peers.forEach(async (pc, targetId) => {
-    const senders = pc.getSenders();
-    // Remove screen audio senders (any audio sender that is not our local microphone)
-    senders.forEach(s => {
-      const isNotMic = !localAudioStream || (localAudioStream.getAudioTracks()[0] && s.track !== localAudioStream.getAudioTracks()[0]);
-      if (s.track && s.track.kind === 'audio' && isNotMic) {
-        try { pc.removeTrack(s); } catch (e) {}
-      }
-    });
+    ensureMasterAudioOnPeer(pc);
 
+    const senders = pc.getSenders();
     const videoSender = senders.find(s => s.track && s.track.kind === 'video');
     if (videoSender) {
       const fallbackTrack = (localVideoStream && localVideoStream.getVideoTracks()[0]) || null;
