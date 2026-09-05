@@ -770,6 +770,87 @@ body {
   background-color: var(--brand-hover);
 }
 
+.top-action-btn.highlight-stream-top {
+  background: linear-gradient(135deg, #5865f2 0%, #4752c4 100%);
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(88, 101, 242, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 6px 14px;
+}
+.top-action-btn.highlight-stream-top:hover {
+  background: linear-gradient(135deg, #4752c4 0%, #3c45a5 100%);
+  box-shadow: 0 3px 12px rgba(88, 101, 242, 0.6);
+}
+.top-action-btn.highlight-stream-top.streaming {
+  background: linear-gradient(135deg, #f23f43 0%, #d83a3e 100%) !important;
+  box-shadow: 0 0 12px rgba(242, 63, 67, 0.7) !important;
+  animation: pulse-stream 2s infinite;
+}
+
+/* Live Stream Alert Bar in Chat */
+.live-stream-bar {
+  background: linear-gradient(90deg, rgba(88, 101, 242, 0.25) 0%, rgba(35, 165, 90, 0.15) 100%);
+  border-bottom: 1px solid rgba(88, 101, 242, 0.4);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  z-index: 10;
+  animation: slideDown 0.25s ease-out;
+}
+.live-stream-bar.hidden {
+  display: none !important;
+}
+.live-stream-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-header);
+}
+.live-stream-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: var(--danger);
+  display: inline-block;
+  animation: streamDotPulse 1.5s infinite;
+}
+@keyframes streamDotPulse {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(242, 63, 67, 0.7); }
+  70% { transform: scale(1.1); box-shadow: 0 0 0 8px rgba(242, 63, 67, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(242, 63, 67, 0); }
+}
+.watch-stream-btn {
+  background-color: var(--brand);
+  color: #fff;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.watch-stream-btn:hover {
+  background-color: var(--brand-hover);
+  transform: translateY(-1px);
+}
+
+.input-action-btn.highlight-stream-chat {
+  color: var(--brand);
+}
+.input-action-btn.highlight-stream-chat:hover {
+  color: #fff;
+  background-color: var(--brand);
+}
+
 .search-bar-box {
   background-color: var(--bg-tertiary);
   border-radius: 4px;

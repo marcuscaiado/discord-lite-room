@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Discord - Full Web Edition</title>
-  <link rel="stylesheet" href="style.css?v=2.6">
+  <link rel="stylesheet" href="style.css?v=2.7">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=gg+sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="/socket.io/socket.io.js"></script>
@@ -140,9 +140,8 @@
         </div>
       </div>
 
-      <!-- Connected Voice Status Dock (Visible when in Voice Channel) -->
-      <!-- Connected Voice Status Dock (Visible when in Voice Channel) -->
-      <div id="voice-status-dock" class="voice-status-dock hidden">
+      <!-- Connected Voice Status Dock (PERMANENTLY VISIBLE IN SIDEBAR!) -->
+      <div id="voice-status-dock" class="voice-status-dock">
         <div class="voice-status-header">
           <div class="voice-status-info" id="btn-dock-voice-info" title="Click to view Voice & Screen Stage">
             <div class="voice-rtc-line">
@@ -211,15 +210,27 @@
         </div>
 
         <div class="channel-top-right">
-          <!-- Share / Invite Link Button -->
-          <button id="btn-copy-invite" class="top-action-btn highlight-invite" title="Copy link to send to your friend">
-            <span>🔗 Copy Invite Link</span>
+          <!-- Big Prominent Stream Button (Always Visible in Header!) -->
+          <button id="top-btn-screen" class="top-action-btn highlight-stream-top" title="Share Screen / Stream (1080p with Sound)">
+            <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M21 3H3c-1.11 0-2 .89-2 2v12c0 1.1.89 2 2 2h5v2h8v-2h5c1.1 0 1.99-.9 1.99-2L23 5c0-1.11-.9-2-2-2zm0 14H3V5h18v12zm-8-3l4-4-4-4v3H9v2h4v3z"/></svg>
+            <span class="btn-text">Share Screen</span>
+          </button>
+
+          <!-- Top Bar Camera Button (Always Visible in Header!) -->
+          <button id="top-btn-cam" class="top-action-btn" title="Toggle Camera">
+            <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+            <span class="btn-text">Camera</span>
           </button>
 
           <!-- Voice Channel Stage Toggle Button -->
           <button id="btn-toggle-voice-stage" class="top-action-btn" title="Toggle Voice/Screen Stage">
-            <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
-            <span>Stage View</span>
+            <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h2v7H7zm4-3h2v10h-2zm4 6h2v4h-2z"/></svg>
+            <span>Watch Stage</span>
+          </button>
+
+          <!-- Share / Invite Link Button -->
+          <button id="btn-copy-invite" class="top-action-btn highlight-invite" title="Copy link to send to your friend">
+            <span>🔗 Invite Link</span>
           </button>
           
           <button id="btn-toggle-members" class="top-action-btn active" title="Member List">
@@ -235,6 +246,15 @@
 
       <!-- View 1: Text Channel Chat View -->
       <section id="view-chat" class="content-view active">
+        <!-- Live Stream Alert Banner (Visible whenever screen stream is active!) -->
+        <div id="live-stream-bar" class="live-stream-bar hidden">
+          <div class="live-stream-info">
+            <span class="live-stream-pulse"></span>
+            <span id="live-stream-text">📺 A stream is live! Click to watch your friend's screen.</span>
+          </div>
+          <button id="btn-watch-stream" class="watch-stream-btn">Watch Live Stream</button>
+        </div>
+
         <div id="chat-messages" class="chat-messages-container">
           <!-- Dynamic messages rendered here -->
         </div>
@@ -260,6 +280,11 @@
           <input type="text" id="chat-input" placeholder="Message #general-chat (Markdown, @mentions, emojis supported)" autocomplete="off" />
 
           <div class="chat-input-actions">
+            <!-- Screen Share / Stream Button directly in Chat -->
+            <button type="button" id="btn-chat-screen" class="input-action-btn highlight-stream-chat" title="Share Screen / Stream Now">
+              <svg width="22" height="22" viewBox="0 0 24 24"><path fill="currentColor" d="M21 3H3c-1.11 0-2 .89-2 2v12c0 1.1.89 2 2 2h5v2h8v-2h5c1.1 0 1.99-.9 1.99-2L23 5c0-1.11-.9-2-2-2zm0 14H3V5h18v12zm-8-3l4-4-4-4v3H9v2h4v3z"/></svg>
+            </button>
+
             <!-- Soundboard Trigger -->
             <button type="button" id="btn-open-soundboard" class="input-action-btn" title="Open Discord Soundboard">
               <svg width="22" height="22" viewBox="0 0 24 24"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
@@ -664,6 +689,6 @@
   </div>
 
   <!-- Audio elements & Scripts -->
-  <script src="app.js?v=2.6"></script>
+  <script src="app.js?v=2.7"></script>
 </body>
 </html>

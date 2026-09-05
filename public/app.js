@@ -125,6 +125,12 @@ const topBarTitle = document.getElementById('top-bar-title');
 const topBarTopic = document.getElementById('top-bar-topic');
 const btnCopyInvite = document.getElementById('btn-copy-invite');
 const btnToggleVoiceStage = document.getElementById('btn-toggle-voice-stage');
+const topBtnScreen = document.getElementById('top-btn-screen');
+const topBtnCam = document.getElementById('top-btn-cam');
+const btnChatScreen = document.getElementById('btn-chat-screen');
+const liveStreamBar = document.getElementById('live-stream-bar');
+const liveStreamText = document.getElementById('live-stream-text');
+const btnWatchStream = document.getElementById('btn-watch-stream');
 const btnToggleMembers = document.getElementById('btn-toggle-members');
 const membersSidebar = document.getElementById('members-sidebar');
 const membersContainer = document.getElementById('members-container');
@@ -972,17 +978,50 @@ if (btnDockVoiceInfo) {
   btnDockVoiceInfo.addEventListener('click', () => switchView('stage'));
 }
 
-if (dockBtnCam) {
-  dockBtnCam.addEventListener('click', () => btnCam.click());
+async function ensureVoiceAndScreenShare() {
+  if (!currentVoiceChannelId) {
+    const srv = servers.find(s => s.id === currentServerId) || servers[0];
+    const defaultVoice = srv?.categories?.flatMap(c => c.channels)?.find(ch => ch.type === 'voice');
+    const targetChannelId = defaultVoice ? defaultVoice.id : 'v-lounge';
+    await connectVoiceChannel(targetChannelId);
+  }
+  if (!isScreenSharing) {
+    btnScreen.click();
+    switchView('stage');
+  } else {
+    stopScreenShare();
+  }
 }
 
+async function ensureVoiceAndCam() {
+  if (!currentVoiceChannelId) {
+    const srv = servers.find(s => s.id === currentServerId) || servers[0];
+    const defaultVoice = srv?.categories?.flatMap(c => c.channels)?.find(ch => ch.type === 'voice');
+    const targetChannelId = defaultVoice ? defaultVoice.id : 'v-lounge';
+    await connectVoiceChannel(targetChannelId);
+  }
+  btnCam.click();
+}
+
+if (topBtnScreen) {
+  topBtnScreen.addEventListener('click', ensureVoiceAndScreenShare);
+}
+if (btnChatScreen) {
+  btnChatScreen.addEventListener('click', ensureVoiceAndScreenShare);
+}
 if (dockBtnScreen) {
-  dockBtnScreen.addEventListener('click', () => {
-    btnScreen.click();
-    if (!isScreenSharing) {
-      switchView('stage');
-    }
-  });
+  dockBtnScreen.addEventListener('click', ensureVoiceAndScreenShare);
+}
+
+if (topBtnCam) {
+  topBtnCam.addEventListener('click', ensureVoiceAndCam);
+}
+if (dockBtnCam) {
+  dockBtnCam.addEventListener('click', ensureVoiceAndCam);
+}
+
+if (btnWatchStream) {
+  btnWatchStream.addEventListener('click', () => switchView('stage'));
 }
 
 if (dockBtnSoundboard) {
@@ -1011,9 +1050,14 @@ async function connectVoiceChannel(channelId) {
   const vChan = srv?.categories.flatMap(c => c.channels).find(ch => ch.id === channelId);
 
   // Update Voice Status Dock
-  voiceStatusDock.classList.remove('hidden');
-  connectedVoiceName.textContent = `${vChan ? vChan.name : 'Voice'} / ${srv ? srv.name : 'Server'}`;
-  btnToggleVoiceStage.classList.remove('hidden');
+  if (voiceStatusDock) {
+    voiceStatusDock.classList.remove('hidden');
+    voiceStatusDock.classList.add('connected');
+  }
+  if (connectedVoiceName) {
+    connectedVoiceName.textContent = `${vChan ? vChan.name : 'Voice'} / ${srv ? srv.name : 'Server'}`;
+  }
+  if (btnToggleVoiceStage) btnToggleVoiceStage.classList.remove('hidden');
 
   playDiscordSound('discord-join');
   showToast(`🔊 Connected to voice: ${vChan ? vChan.name : 'Voice Room'}`);
@@ -1033,6 +1077,12 @@ btnVoiceDisconnect.addEventListener('click', disconnectVoice);
 btnLeaveStage.addEventListener('click', disconnectVoice);
 
 function disconnectVoice() {
+  if (isScreenSharing) {
+    stopScreenShare();
+  }
+  if (isCameraOn) {
+    btnCam.click();
+  }
   if (!currentVoiceChannelId) return;
 
   socket.emit('leave-voice-channel');
@@ -1050,11 +1100,20 @@ function disconnectVoice() {
 
   // Reset video grid
   videoGrid.innerHTML = '';
-  voiceStatusDock.classList.add('hidden');
-  btnToggleVoiceStage.classList.add('hidden');
+  // Keep the voice dock permanently visible so buttons are ALWAYS available!
+  if (connectedVoiceName) connectedVoiceName.textContent = 'Not in Voice (Click Stream to Start)';
+  if (voiceStatusDock) voiceStatusDock.classList.remove('connected');
   if (dockBtnScreen) dockBtnScreen.classList.remove('streaming');
+  if (topBtnScreen) {
+    topBtnScreen.classList.remove('streaming');
+    const t = topBtnScreen.querySelector('.btn-text');
+    if (t) t.textContent = 'Share Screen';
+  }
+  if (btnChatScreen) btnChatScreen.classList.remove('active');
   if (dockBtnCam) dockBtnCam.classList.remove('active');
+  if (topBtnCam) topBtnCam.classList.remove('active');
   if (dockBtnStage) dockBtnStage.classList.remove('active');
+  if (liveStreamBar) liveStreamBar.classList.add('hidden');
 
   playDiscordSound('discord-leave');
   showToast('🔇 Disconnected from voice channel.');
@@ -1365,6 +1424,10 @@ socket.on('stream-started', ({ id, username }) => {
     createPeerConnection(id, false);
   }
   refreshRemoteStreamTile(id);
+  if (liveStreamBar) {
+    liveStreamBar.classList.remove('hidden');
+    if (liveStreamText) liveStreamText.textContent = `📺 ${username} is sharing their screen!`;
+  }
   showToast(`📺 ${username} is sharing their screen!`);
 });
 
@@ -1372,6 +1435,10 @@ socket.on('stream-stopped', ({ id, username }) => {
   const u = allUsers.get(id);
   if (u) u.isScreenSharing = false;
   refreshRemoteStreamTile(id);
+  const anyoneSharing = Array.from(allUsers.values()).some(usr => usr.isScreenSharing) || isScreenSharing;
+  if (!anyoneSharing && liveStreamBar) {
+    liveStreamBar.classList.add('hidden');
+  }
   showToast(`📺 ${username} stopped screen share.`);
 });
 
@@ -1569,6 +1636,7 @@ btnCam.addEventListener('click', async () => {
       btnCam.classList.add('highlight');
       btnCam.querySelector('.btn-text').textContent = 'Stop Cam';
       if (dockBtnCam) dockBtnCam.classList.add('active');
+      if (topBtnCam) topBtnCam.classList.add('active');
       socket.emit('media-state-change', { isCameraOn: true });
       showToast('📹 Camera Turned On');
     } catch (e) {
@@ -1599,6 +1667,7 @@ btnCam.addEventListener('click', async () => {
     btnCam.classList.remove('highlight');
     btnCam.querySelector('.btn-text').textContent = 'Camera';
     if (dockBtnCam) dockBtnCam.classList.remove('active');
+    if (topBtnCam) topBtnCam.classList.remove('active');
     socket.emit('media-state-change', { isCameraOn: false });
     showToast('📹 Camera Turned Off');
   }
@@ -1659,6 +1728,16 @@ btnScreen.addEventListener('click', async () => {
       btnScreen.classList.add('danger');
       btnScreen.querySelector('.btn-text').textContent = 'Stop Sharing';
       if (dockBtnScreen) dockBtnScreen.classList.add('streaming');
+      if (topBtnScreen) {
+        topBtnScreen.classList.add('streaming');
+        const t = topBtnScreen.querySelector('.btn-text');
+        if (t) t.textContent = 'Stop Stream';
+      }
+      if (btnChatScreen) btnChatScreen.classList.add('active');
+      if (liveStreamBar) {
+        liveStreamBar.classList.remove('hidden');
+        if (liveStreamText) liveStreamText.textContent = '📺 You are sharing your screen!';
+      }
       socket.emit('stream-started', { resolution: streamResolution, fps: streamFps, hasAudio: !!screenAudioTrack });
       socket.emit('media-state-change', { isScreenSharing: true });
       showToast(screenAudioTrack ? '📺 1080p Stream Started (with Tab Audio 🔊)' : '📺 1080p Stream Started');
@@ -1704,6 +1783,16 @@ function stopScreenShare() {
   btnScreen.classList.remove('danger');
   btnScreen.querySelector('.btn-text').textContent = 'Share Screen';
   if (dockBtnScreen) dockBtnScreen.classList.remove('streaming');
+  if (topBtnScreen) {
+    topBtnScreen.classList.remove('streaming');
+    const t = topBtnScreen.querySelector('.btn-text');
+    if (t) t.textContent = 'Share Screen';
+  }
+  if (btnChatScreen) btnChatScreen.classList.remove('active');
+  const anyoneSharing = Array.from(allUsers.values()).some(usr => usr.isScreenSharing);
+  if (!anyoneSharing && liveStreamBar) {
+    liveStreamBar.classList.add('hidden');
+  }
   socket.emit('stream-stopped');
   socket.emit('media-state-change', { isScreenSharing: false });
   showToast('📺 Screen sharing stopped.');
