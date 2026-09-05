@@ -452,14 +452,19 @@ function initMasterAudioMixer() {
 }
 
 function getMasterAudioTrack() {
+  // If sharing screen with an active mixed audio track, use master audio
+  if (isScreenSharing && screenAudioSourceNode && masterAudioTrack && masterAudioTrack.readyState === 'live') {
+    return masterAudioTrack;
+  }
+  // For standard voice, ALWAYS send direct native getUserMedia track:
+  // Zero latency, hardware AEC/AGC, and 100% immune to mobile Web Audio MediaStreamDestination bugs!
+  if (localAudioStream && localAudioStream.getAudioTracks().length > 0 && localAudioStream.getAudioTracks()[0].readyState === 'live') {
+    return localAudioStream.getAudioTracks()[0];
+  }
   if (masterAudioTrack && masterAudioTrack.readyState === 'live') {
     return masterAudioTrack;
   }
-  initMasterAudioMixer();
-  if (masterAudioTrack && masterAudioTrack.readyState === 'live') {
-    return masterAudioTrack;
-  }
-  return localAudioStream ? localAudioStream.getAudioTracks()[0] : null;
+  return null;
 }
 
 function attachScreenAudioToMixer(screenStream) {
@@ -519,10 +524,14 @@ function ensureMasterAudioOnPeer(pc) {
   const audioSender = senders.find(s => s.track && s.track.kind === 'audio') ||
                       senders.find(s => !s.track);
   if (audioSender) {
-    audioSender.replaceTrack(track).catch(e => console.warn('replaceTrack audio error:', e));
+    if (audioSender.track !== track) {
+      audioSender.replaceTrack(track).catch(e => console.warn('replaceTrack audio error:', e));
+    }
   } else {
     try {
-      const streamToSend = masterMixDestination ? masterMixDestination.stream : localAudioStream;
+      const streamToSend = (isScreenSharing && screenAudioSourceNode && masterMixDestination)
+        ? masterMixDestination.stream
+        : (localAudioStream || new MediaStream([track]));
       pc.addTrack(track, streamToSend);
     } catch (e) {
       console.warn('addTrack master audio error:', e);
@@ -652,10 +661,13 @@ function handleSpeakingState(isSpeaking) {
   socket.emit('user-speaking', { isSpeaking });
 }
 
-// Dedicated Remote Audio Playback Engine (Independent element per audio track: Voice & Stream)
+// Dedicated Remote Audio Playback Engine: Dual-Route (Web Audio Hardware Graph + DOM Audio Element)
+const peerAudioNodes = new Map(); // trackId -> { source, gain, analyser }
+
 function playRemoteAudioTrack(targetId, track, isScreen = false) {
   if (!track || track.readyState === 'ended') return;
 
+  // 1. DOM Audio Element Playback
   const audioId = `audio-track-${track.id}`;
   let audioEl = document.getElementById(audioId);
   if (!audioEl) {
@@ -664,30 +676,85 @@ function playRemoteAudioTrack(targetId, track, isScreen = false) {
     audioEl.autoplay = true;
     audioEl.playsInline = true;
     audioEl.setAttribute('data-peer-audio', targetId);
-    audioEl.style.position = 'fixed';
-    audioEl.style.left = '-9999px';
-    audioEl.style.top = '-9999px';
+    audioEl.setAttribute('playsinline', 'true');
+    audioEl.setAttribute('webkit-playsinline', 'true');
+    // Positioned invisibly in DOM without -9999px (which causes power throttling in Blink/WebKit)
+    audioEl.style.cssText = 'position:fixed;bottom:0;right:0;width:1px;height:1px;opacity:0.001;pointer-events:none;z-index:-1;';
     document.body.appendChild(audioEl);
   }
 
   audioEl.muted = isDeafened;
   audioEl.volume = soundVolume;
 
-  // Crucial: Bind ONLY this specific audio track into its own MediaStream
-  if (!audioEl.srcObject || !audioEl.srcObject.getTracks().includes(track)) {
+  const currentStream = audioEl.srcObject;
+  if (!currentStream || !currentStream.getTracks().includes(track)) {
     audioEl.srcObject = new MediaStream([track]);
   }
 
   userAudioElements.set(track.id, audioEl);
 
-  const playPromise = audioEl.play();
-  if (playPromise !== undefined) {
-    playPromise.then(() => {
+  const startPlayback = () => {
+    audioEl.play().then(() => {
       console.log(`[Audio Engine] 🔊 Playing ${isScreen ? 'Stream Audio' : 'Voice Audio'} [${track.id}] from ${targetId}`);
     }).catch(err => {
-      console.warn(`[Audio Engine] Autoplay gesture required for track ${track.id}:`, err);
-      showToast('🔊 Click anywhere on Caller to enable audio playback!');
+      console.warn(`[Audio Engine] DOM play() pending gesture for track ${track.id}:`, err);
     });
+  };
+
+  startPlayback();
+
+  // 2. Direct Web Audio API Hardware Route (Bypasses autoplay restrictions & routes directly to speaker/headphones)
+  try {
+    const ctx = getAudioContext();
+    if (ctx) {
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+
+      if (!peerAudioNodes.has(track.id)) {
+        const stream = new MediaStream([track]);
+        const source = ctx.createMediaStreamSource(stream);
+        const gain = ctx.createGain();
+        gain.gain.value = isDeafened ? 0 : soundVolume;
+
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+
+        source.connect(gain);
+        gain.connect(ctx.destination);
+        source.connect(analyser);
+
+        peerAudioNodes.set(track.id, { source, gain, analyser });
+        console.log(`[Audio Engine] 🎧 Direct Web Audio speaker path active for track ${track.id} from ${targetId}`);
+
+        // Real-time audio packet energy speaking monitor
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        const speakingCheck = setInterval(() => {
+          if (track.readyState === 'ended' || !peerAudioNodes.has(track.id)) {
+            clearInterval(speakingCheck);
+            return;
+          }
+          analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+          const avg = sum / dataArray.length;
+          const isPeerSpeaking = avg > 6;
+
+          const tile = document.getElementById(`tile-${targetId}`);
+          if (tile) tile.classList.toggle('speaking', isPeerSpeaking);
+
+          const nested = document.querySelector(`.nested-user-row[data-uid="${targetId}"] .nested-avatar`);
+          if (nested) nested.classList.toggle('speaking', isPeerSpeaking);
+        }, 80);
+      } else {
+        const node = peerAudioNodes.get(track.id);
+        if (node && node.gain) {
+          node.gain.gain.value = isDeafened ? 0 : soundVolume;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Audio Engine] Web Audio direct speaker route note:', err);
   }
 }
 
@@ -1443,25 +1510,8 @@ socket.on('voice-user-joined', async ({ channelId, user }) => {
 
   await ensureLocalMic();
   refreshRemoteStreamTile(user.id);
-
-  // If local user is currently sharing screen, immediately push stream tracks to this new user!
-  if (isScreenSharing && localScreenStream) {
-    const screenVideoTrack = localScreenStream.getVideoTracks()[0];
-    if (screenVideoTrack) {
-      console.log(`[Streamer] Directly pushing screen stream to newly joined peer ${user.username} (${user.id})`);
-      const pc = await createPeerConnection(user.id, true);
-      const senders = pc.getSenders();
-      const videoSender = senders.find(s => s.track && s.track.kind === 'video') ||
-                          senders.find(s => !s.track);
-      if (videoSender) {
-        await videoSender.replaceTrack(screenVideoTrack);
-      } else {
-        pc.addTrack(screenVideoTrack, localScreenStream);
-      }
-      ensureMasterAudioOnPeer(pc);
-      await sendOfferToPeer(pc, user.id);
-    }
-  }
+  // NOTE: In WebRTC mesh, the joining user is ALWAYS the initiator (see voice-channel-joined).
+  // Existing participants must NOT send a competing offer here to prevent glare/collision and dropped audio!
 });
 
 socket.on('voice-user-left', ({ userId, username }) => {
@@ -1560,6 +1610,14 @@ async function createPeerConnection(targetId, isInitiator) {
           const el = document.getElementById(`audio-track-${track.id}`);
           if (el) el.remove();
           userAudioElements.delete(track.id);
+          const node = peerAudioNodes.get(track.id);
+          if (node) {
+            try {
+              node.gain.disconnect();
+              node.source.disconnect();
+            } catch (e) {}
+            peerAudioNodes.delete(track.id);
+          }
           stream.removeTrack(track);
         };
       } else if (track.kind === 'video') {
@@ -1607,6 +1665,18 @@ function closePeer(userId) {
 
   // Remove all audio elements belonging to this peer
   document.querySelectorAll(`audio[data-peer-audio="${userId}"]`).forEach(el => el.remove());
+
+  // Clean up any Web Audio peer nodes
+  peerAudioNodes.forEach((node, trackId) => {
+    const el = document.getElementById(`audio-track-${trackId}`);
+    if (!el) {
+      try {
+        node.gain.disconnect();
+        node.source.disconnect();
+      } catch (e) {}
+      peerAudioNodes.delete(trackId);
+    }
+  });
 
   const tile = document.getElementById(`tile-${userId}`);
   if (tile) tile.remove();
@@ -1711,22 +1781,26 @@ socket.on('peer-needs-stream', async ({ peerId, peerUsername }) => {
   const screenVideoTrack = localScreenStream.getVideoTracks()[0];
   if (!screenVideoTrack) return;
 
-  try {
-    const pc = await createPeerConnection(peerId, true);
-    const senders = pc.getSenders();
-    const videoSender = senders.find(s => s.track && s.track.kind === 'video') ||
-                        senders.find(s => !s.track);
-    if (videoSender) {
-      await videoSender.replaceTrack(screenVideoTrack);
-    } else {
-      pc.addTrack(screenVideoTrack, localScreenStream);
-    }
+  const pc = peers.get(peerId);
+  if (!pc) return;
 
-    ensureMasterAudioOnPeer(pc);
-    await sendOfferToPeer(pc, peerId);
-    console.log(`[Streamer] Successfully sent live stream offer to peer ${peerId}`);
-  } catch (err) {
-    console.warn('[Streamer] Error sending stream offer to peer:', err);
+  // Only initiate renegotiation if connection is stable
+  if (pc.signalingState === 'stable') {
+    try {
+      const senders = pc.getSenders();
+      const videoSender = senders.find(s => s.track && s.track.kind === 'video') ||
+                          senders.find(s => !s.track);
+      if (videoSender) {
+        await videoSender.replaceTrack(screenVideoTrack);
+      } else {
+        pc.addTrack(screenVideoTrack, localScreenStream);
+        ensureMasterAudioOnPeer(pc);
+        await sendOfferToPeer(pc, peerId);
+      }
+      console.log(`[Streamer] Successfully pushed stream track to peer ${peerId}`);
+    } catch (err) {
+      console.warn('[Streamer] Error updating stream to peer:', err);
+    }
   }
 });
 
@@ -1983,6 +2057,9 @@ dockBtnDeafen.addEventListener('click', () => {
   isDeafened = !isDeafened;
   document.querySelectorAll('audio[data-peer-audio]').forEach(audioEl => {
     audioEl.muted = isDeafened;
+  });
+  peerAudioNodes.forEach(node => {
+    if (node.gain) node.gain.gain.value = isDeafened ? 0 : soundVolume;
   });
 
   dockBtnDeafen.classList.toggle('active', isDeafened);
@@ -2943,6 +3020,9 @@ soundVolSlider.addEventListener('input', () => {
   soundVolume = parseFloat(soundVolSlider.value) / 100;
   document.querySelectorAll('audio[data-peer-audio]').forEach(a => {
     a.volume = soundVolume;
+  });
+  peerAudioNodes.forEach(node => {
+    if (node.gain) node.gain.gain.value = isDeafened ? 0 : soundVolume;
   });
 });
 
