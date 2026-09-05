@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: discord-lite-room
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
