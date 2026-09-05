@@ -20,6 +20,13 @@ app.use(express.static(path.join(__dirname, 'public'), {
   }
 }));
 
+app.get('/favicon.ico', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'favicon.ico'));
+});
+app.get('/caller-logo.svg', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'caller-logo.svg'));
+});
+
 // Default Initial Servers & Channels
 const defaultServers = [
   {
@@ -134,7 +141,7 @@ const channelMessages = {
       senderId: 'bot-clyde',
       avatar: '🤖',
       role: 'BOT',
-      text: '🎉 Welcome to **Discord Full Edition**! Enjoy high-fidelity 1080p 30/60fps screen transmission, Krisp audio noise cancellation, multi-server channels, direct messages, and rich markdown chat.',
+      text: '🎉 Welcome to **Caller**! Enjoy high-fidelity 1080p 30/60fps screen transmission, Krisp audio noise cancellation, multi-server channels, direct messages, and rich markdown chat.',
       timestamp: 'Today at 12:00 PM',
       reactions: { '⚡': ['system'], '🔥': ['system', 'bot-clyde'] }
     },
@@ -156,7 +163,7 @@ const channelMessages = {
       senderId: 'bot-wumpus',
       avatar: '👾',
       role: 'ADMIN',
-      text: 'Hey everyone! Full Discord Web is running with real WebRTC peer mesh, soundboard, and custom themes (Dark, Midnight AMOLED, Light). Try clicking the Settings gear ⚙️!',
+      text: 'Hey everyone! Caller is running with real WebRTC peer mesh, soundboard, and custom themes (Dark, Midnight AMOLED, Light). Try clicking the Settings gear ⚙️!',
       timestamp: 'Today at 12:10 PM',
       reactions: { '👍': ['system'], '❤️': ['bot-wumpus'] }
     }
@@ -205,15 +212,15 @@ setInterval(broadcastGlobalSync, 1000);
 io.on('connection', (socket) => {
   console.log(`[Connect] Socket ID: ${socket.id}`);
 
-  // User Join / Authenticate
-  socket.on('join-discord', ({ username, status = 'online', customStatus = '', avatar = '' }) => {
+  // User Join / Authenticate (Supports both join-caller and join-discord)
+  const handleUserJoin = ({ username, status = 'online', customStatus = '', avatar = '' }) => {
     const finalUsername = username ? username.trim() : `User_${socket.id.substring(0, 4)}`;
     const userInfo = {
       id: socket.id,
       username: finalUsername,
       tag: `#${Math.floor(1000 + Math.random() * 9000)}`,
       status, // 'online' | 'idle' | 'dnd' | 'offline'
-      customStatus: customStatus || 'Active in Discord',
+      customStatus: customStatus || 'Active on Caller',
       avatar: avatar || finalUsername.charAt(0).toUpperCase(),
       role: users.size === 0 ? 'OWNER' : 'MEMBER',
       currentServerId: 's-doscria',
@@ -227,20 +234,26 @@ io.on('connection', (socket) => {
 
     users.set(socket.id, userInfo);
 
-    // Send initial bootstrap payload
-    socket.emit('discord-init', {
+    const initPayload = {
       self: userInfo,
       servers,
       channelMessages,
       allUsers: Array.from(users.values()),
       voiceChannelMembers: Array.from(voiceChannelMembers.entries()).map(([cid, set]) => [cid, Array.from(set)])
-    });
+    };
+
+    // Send initial bootstrap payload
+    socket.emit('caller-init', initPayload);
+    socket.emit('discord-init', initPayload);
 
     // Broadcast user joined / updated
     io.emit('user-presence-update', userInfo);
     broadcastGlobalSync();
-    console.log(`[Discord Join] ${userInfo.username}${userInfo.tag} (${socket.id}) connected.`);
-  });
+    console.log(`[Caller Join] ${userInfo.username}${userInfo.tag} (${socket.id}) connected.`);
+  };
+
+  socket.on('join-caller', handleUserJoin);
+  socket.on('join-discord', handleUserJoin);
 
   // User Status & Profile Updates
   socket.on('update-profile', (data) => {
@@ -398,7 +411,7 @@ io.on('connection', (socket) => {
       channelMessages[newChan.id] = [
         {
           id: 'm-' + Date.now(),
-          sender: 'Discord System',
+          sender: 'Caller System',
           senderId: 'system',
           avatar: '⚡',
           role: 'SYSTEM',
@@ -417,7 +430,7 @@ io.on('connection', (socket) => {
     const user = users.get(socket.id);
     const newServer = {
       id: 's-' + Date.now(),
-      name: name.trim() || 'New Discord Server',
+      name: name.trim() || 'New Caller Space',
       icon: icon || '🌟',
       ownerId: socket.id,
       categories: [
@@ -443,7 +456,7 @@ io.on('connection', (socket) => {
     channelMessages[initialChanId] = [
       {
         id: 'm-' + Date.now(),
-        sender: 'Discord System',
+        sender: 'Caller System',
         senderId: 'system',
         avatar: '⚡',
         role: 'SYSTEM',
@@ -666,7 +679,7 @@ io.on('connection', (socket) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`=======================================================`);
-  console.log(`⚡ FULL DISCORD SERVER RUNNING LIVE ON:`);
+  console.log(`⚡ CALLER SERVER RUNNING LIVE ON:`);
   console.log(`   - Local:   http://localhost:${PORT}`);
   console.log(`   - Network: http://0.0.0.0:${PORT}`);
   console.log(`=======================================================`);

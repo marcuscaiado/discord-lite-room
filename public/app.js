@@ -686,7 +686,7 @@ function playRemoteAudioTrack(targetId, track, isScreen = false) {
       console.log(`[Audio Engine] 🔊 Playing ${isScreen ? 'Stream Audio' : 'Voice Audio'} [${track.id}] from ${targetId}`);
     }).catch(err => {
       console.warn(`[Audio Engine] Autoplay gesture required for track ${track.id}:`, err);
-      showToast('🔊 Click anywhere on Discord to enable audio playback!');
+      showToast('🔊 Click anywhere on Caller to enable audio playback!');
     });
   }
 }
@@ -694,7 +694,7 @@ function playRemoteAudioTrack(targetId, track, isScreen = false) {
 // --------------------------------------------------------------------------
 // Join Flow
 // --------------------------------------------------------------------------
-const savedName = localStorage.getItem('discord-username');
+const savedName = localStorage.getItem('caller-username') || localStorage.getItem('discord-username');
 const urlName = new URLSearchParams(window.location.search).get('name');
 if (urlName) {
   usernameInput.value = urlName;
@@ -720,6 +720,7 @@ async function joinDiscord() {
   if (!name) return;
 
   const customStatus = customStatusInput.value.trim();
+  localStorage.setItem('caller-username', name);
   localStorage.setItem('discord-username', name);
   joinModal.classList.add('hidden');
 
@@ -729,17 +730,24 @@ async function joinDiscord() {
   await ensureLocalMic();
 
   // Connect user to server
+  socket.emit('join-caller', {
+    username: name,
+    customStatus,
+    avatar: selectedAvatarEmoji
+  });
   socket.emit('join-discord', {
     username: name,
     customStatus,
     avatar: selectedAvatarEmoji
   });
 }
+window.joinCaller = joinDiscord;
 
 // --------------------------------------------------------------------------
 // Socket Events
 // --------------------------------------------------------------------------
-socket.on('discord-init', (data) => {
+function handleInitData(data) {
+  if (myUserInfo) return; // already initialized
   myUserInfo = data.self;
   servers = data.servers;
   Object.assign(channelMessages, data.channelMessages);
@@ -768,7 +776,7 @@ socket.on('discord-init', (data) => {
   renderChatMessages();
 
   playDiscordSound('discord-join');
-  showToast(`⚡ Connected to Discord Live as ${myUserInfo.username}! Connecting to room...`);
+  showToast(`⚡ Connected to Caller Live as ${myUserInfo.username}! Connecting to room...`);
 
   // Auto-connect to voice & stage immediately so you and your friend speak with zero extra clicks
   const urlParams = new URLSearchParams(window.location.search);
@@ -778,7 +786,10 @@ socket.on('discord-init', (data) => {
   } else {
     connectVoiceChannel('v-lounge');
   }
-});
+}
+
+socket.on('caller-init', handleInitData);
+socket.on('discord-init', handleInitData);
 
 socket.on('user-presence-update', (user) => {
   allUsers.set(user.id, user);
@@ -2395,7 +2406,7 @@ function appendMessage(msg) {
       username: msg.sender,
       avatar: msg.avatar,
       tag: '#0001',
-      customStatus: 'Discord Member',
+      customStatus: 'Caller Member',
       status: 'online'
     };
     openProfilePopout(sender, e.clientX, e.clientY);
@@ -2625,7 +2636,7 @@ function openProfilePopout(user, x, y) {
   popoutStatusDot.className = `popout-status-dot ${user.status || 'online'}`;
   popoutUsernameText.textContent = user.username;
   popoutTagText.textContent = user.tag || '#0001';
-  popoutCustomStatusText.textContent = user.customStatus || 'Active in Discord';
+  popoutCustomStatusText.textContent = user.customStatus || 'Active on Caller';
 
   popoutRolesList.innerHTML = `
     <span class="role-tag owner">👑 ${user.role || 'Member'}</span>
@@ -2909,13 +2920,14 @@ themeCards.forEach(card => {
 
     document.body.classList.remove('theme-dark', 'theme-midnight', 'theme-light');
     document.body.classList.add(`theme-${theme}`);
+    localStorage.setItem('caller-theme', theme);
     localStorage.setItem('discord-theme', theme);
     showToast(`🎨 Theme changed to ${theme.toUpperCase()}`);
   });
 });
 
 // Saved Theme bootstrap
-const savedTheme = localStorage.getItem('discord-theme');
+const savedTheme = localStorage.getItem('caller-theme') || localStorage.getItem('discord-theme');
 if (savedTheme) {
   document.body.classList.remove('theme-dark', 'theme-midnight', 'theme-light');
   document.body.classList.add(`theme-${savedTheme}`);
@@ -2957,4 +2969,4 @@ if (btnCopyInvite) {
   });
 }
 
-console.log('⚡ Discord Full Web Engine loaded successfully.');
+console.log('⚡ Caller Engine loaded successfully.');

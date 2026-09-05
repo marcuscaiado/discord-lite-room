@@ -1,7 +1,7 @@
 {
-  "name": "call-rooms",
-  "version": "1.1.0",
-  "description": "Call - Lightweight voice, video, and 1080p screen sharing rooms",
+  "name": "caller",
+  "version": "1.2.0",
+  "description": "Caller - Voice, Video, 1080p Screen Streaming, and Community Spaces",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

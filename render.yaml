@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: discord-lite-room
+    name: caller-web
     env: node
     plan: free
     buildCommand: npm install

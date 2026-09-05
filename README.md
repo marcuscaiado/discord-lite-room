@@ -1,13 +1,13 @@
-# Discord Full Web Edition ⚡
+# Caller ⚡
 
-A comprehensive, production-ready **Full Discord Web Application** built with Node.js, Express, Socket.io, and WebRTC. Features multi-server navigation, categorized text & voice channels, Direct Messages (DMs) & Friends list, rich markdown chat with reactions and file attachments, soundboard & synthesized Discord chimes, Krisp-style Web Audio DSP noise cancellation, and high-fidelity 1080p 30/60 FPS screen transmission.
+A comprehensive, production-ready **Caller Web Application** built with Node.js, Express, Socket.io, and WebRTC. Features multi-server navigation, categorized text & voice channels, Direct Messages (DMs) & Friends list, rich markdown chat with reactions and file attachments, soundboard & synthesized audio chimes, Krisp-style Web Audio DSP noise cancellation, and high-fidelity 1080p 30/60 FPS screen transmission.
 
 ---
 
 ## 🌟 Key Features
 
-### 🏰 Multi-Server & Guild Sidebar (72px)
-- **Discord Home Button**: Instant switch between servers and Direct Messages / Friends list.
+### 🏰 Multi-Server & Community Spaces (72px)
+- **Caller Home Button**: Instant switch between servers and Direct Messages / Friends list.
 - **Preloaded & Custom Servers**:
   - *⚡ DosCria Hub* (Community, Clips, Rules, 1080p Lounge, Late Night Radio)
   - *🎮 Gaming HQ* (LFG Party, CS2 Comp, Valorant Ranked, Chill Duo)

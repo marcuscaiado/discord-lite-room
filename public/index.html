@@ -3,8 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Discord - Full Web Edition</title>
-  <link rel="stylesheet" href="style.css?v=3.2">
+  <title>Caller</title>
+  <link rel="icon" type="image/svg+xml" href="/caller-logo.svg?v=3.3">
+  <link rel="alternate icon" type="image/png" href="/caller-icon-32.png?v=3.3">
+  <link rel="shortcut icon" href="/favicon.ico?v=3.3">
+  <link rel="apple-touch-icon" href="/caller-icon-32.png?v=3.3">
+  <meta name="theme-color" content="#5865f2">
+  <meta name="description" content="Caller - Real-time Voice, Video & 1080p Screen Streaming Spaces">
+  <link rel="stylesheet" href="style.css?v=3.3">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=gg+sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="/socket.io/socket.io.js"></script>
@@ -14,12 +20,10 @@
   <div id="join-modal" class="modal-overlay">
     <div class="modal-card">
       <div class="modal-logo">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="#5865F2">
-          <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.893.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
-        </svg>
+        <img src="/caller-logo.svg?v=3.3" alt="Caller" width="60" height="60" style="border-radius: 16px; box-shadow: 0 8px 24px rgba(88, 101, 242, 0.45); display: block; margin: 0 auto;" />
       </div>
-      <h2>Welcome to Discord</h2>
-      <p>Log into the live Discord Web experience with multi-servers, 1080p screen share, voice rooms, and rich chat.</p>
+      <h2>Welcome to Caller</h2>
+      <p>Log into the live Caller experience with multi-spaces, 1080p screen share, voice rooms, and rich chat.</p>
       
       <div class="input-group">
         <label>USERNAME</label>
@@ -28,7 +32,7 @@
 
       <div class="input-group">
         <label>CUSTOM STATUS (OPTIONAL)</label>
-        <input type="text" id="custom-status-input" placeholder="Playing CS2 / Coding Discord" maxlength="35" />
+        <input type="text" id="custom-status-input" placeholder="Playing CS2 / Calling friends" maxlength="35" />
       </div>
 
       <div class="avatar-select-section">
@@ -43,21 +47,23 @@
         </div>
       </div>
 
-      <button id="join-btn" class="primary-btn">Join Discord Live</button>
+      <button id="join-btn" class="primary-btn">Join Caller Live</button>
     </div>
   </div>
 
-  <!-- Main Discord 4-Column Layout -->
-  <div id="app" class="discord-layout">
+  <!-- Main Caller 4-Column Layout -->
+  <div id="app" class="discord-layout caller-layout">
     
     <!-- COLUMN 1: Guild / Server Navigation Bar (72px) -->
     <nav class="guild-sidebar" aria-label="Servers sidebar">
       <!-- Direct Messages / Home Button -->
-      <div class="guild-item active" id="btn-guild-home" title="Direct Messages">
+      <div class="guild-item active" id="btn-guild-home" title="Direct Messages & Spaces">
         <div class="guild-pill"></div>
         <div class="guild-icon home-icon">
-          <svg width="28" height="20" viewBox="0 0 28 20" fill="currentColor">
-            <path d="M23.0212 1.67671C21.3107 0.879656 19.5079 0.318797 17.6584 0C17.4062 0.461742 17.1149 1.05404 16.9123 1.54446C14.9463 1.24801 12.9883 1.24801 11.0504 1.54446C10.8477 1.05404 10.5487 0.461742 10.2941 0C8.44222 0.318797 6.63704 0.88206 4.92888 1.68153C1.49397 6.84074 0.55928 11.8741 1.02534 16.8408C3.30397 18.5369 5.50974 19.5636 7.67493 20.0051C8.21041 19.2678 8.68725 18.4816 9.09657 17.6534C8.30752 17.3537 7.55169 16.966 6.83733 16.5002C7.02798 16.3577 7.21382 16.2081 7.39462 16.0537C11.6669 18.0441 16.3607 18.0441 20.5794 16.0537C20.7626 16.2081 20.9485 16.3577 21.1391 16.5002C20.4224 16.9684 19.6642 17.3561 18.8728 17.6558C19.2845 18.484 19.7613 19.2702 20.2992 20.0051C22.4668 19.5636 24.675 18.5393 26.9536 16.8408C27.5029 11.1391 26.0125 6.14197 23.0212 1.67671ZM9.68041 13.6383C8.38625 13.6383 7.32049 12.4414 7.32049 10.9786C7.32049 9.51576 8.35694 8.31885 9.68041 8.31885C11.0063 8.31885 12.0697 9.51817 12.0404 10.9786C12.0404 12.4414 11.0039 13.6383 9.68041 13.6383ZM18.3164 13.6383C17.0222 13.6383 15.9565 12.4414 15.9565 10.9786C15.9565 9.51576 16.9929 8.31885 18.3164 8.31885C19.6423 8.31885 20.7056 9.51817 20.6763 10.9786C20.6763 12.4414 19.6423 13.6383 18.3164 13.6383Z"/>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1.01A11.36 11.36 0 0 1 8.57 3.9c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.52c0-.55-.45-1-.99-1z"/>
+            <path d="M15.5 1a5.5 5.5 0 0 1 5.5 5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M15.5 5a1.5 1.5 0 0 1 1.5 1.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>
         </div>
       </div>
@@ -293,7 +299,7 @@
             </button>
 
             <!-- Soundboard Trigger -->
-            <button type="button" id="btn-open-soundboard" class="input-action-btn" title="Open Discord Soundboard">
+            <button type="button" id="btn-open-soundboard" class="input-action-btn" title="Open Caller Soundboard">
               <svg width="22" height="22" viewBox="0 0 24 24"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
             </button>
 
@@ -478,7 +484,7 @@
   <!-- Soundboard Popover -->
   <div id="soundboard-popover" class="soundboard-popover hidden">
     <div class="soundboard-header">
-      <span>DISCORD SOUNDBOARD</span>
+      <span>CALLER SOUNDBOARD</span>
       <span class="soundboard-close" id="btn-close-soundboard">✕</span>
     </div>
     <div class="soundboard-grid">
@@ -626,7 +632,7 @@
         <!-- Tab 2: Appearance -->
         <div class="settings-panel hidden" id="panel-appearance">
           <h2>Appearance</h2>
-          <p class="settings-desc">Customize the look and feel of your Discord interface.</p>
+          <p class="settings-desc">Customize the look and feel of your Caller interface.</p>
           <div class="theme-selection-grid">
             <div class="theme-card active" data-theme="dark">
               <div class="theme-preview dark-prev"></div>
@@ -696,6 +702,6 @@
   </div>
 
   <!-- Audio elements & Scripts -->
-  <script src="app.js?v=3.2"></script>
+  <script src="app.js?v=3.3"></script>
 </body>
 </html>

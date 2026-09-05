@@ -1,6 +1,6 @@
 /* ==========================================================================
-   DISCORD FULL WEB EDITION - STYLESHEET
-   Comprehensive Design System matching Discord Desktop / Web
+   CALLER WEB EDITION - STYLESHEET
+   Comprehensive Design System for Voice, Video, and Screen Spaces
    ========================================================================== */
 
 * {
@@ -105,7 +105,8 @@ body {
 }
 
 /* Base Layout Container */
-.discord-layout {
+.discord-layout,
+.caller-layout {
   display: flex;
   height: 100vh;
   width: 100vw;
@@ -2375,7 +2376,8 @@ body {
     overflow: hidden;
   }
 
-  .discord-layout {
+  .discord-layout,
+  .caller-layout {
     position: relative;
     width: 100vw;
     height: 100vh;
@@ -2404,11 +2406,13 @@ body {
   }
 
   /* When drawer is open on mobile */
-  .discord-layout.mobile-drawer-open .guild-sidebar {
+  .discord-layout.mobile-drawer-open .guild-sidebar,
+  .caller-layout.mobile-drawer-open .guild-sidebar {
     transform: translateX(320px);
   }
 
-  .discord-layout.mobile-drawer-open .channels-sidebar {
+  .discord-layout.mobile-drawer-open .channels-sidebar,
+  .caller-layout.mobile-drawer-open .channels-sidebar {
     transform: translateX(320px);
     box-shadow: 4px 0 24px rgba(0, 0, 0, 0.6);
   }
@@ -2424,7 +2428,9 @@ body {
   }
 
   .discord-layout.mobile-drawer-open .mobile-drawer-backdrop,
-  .discord-layout.mobile-members-open .mobile-drawer-backdrop {
+  .discord-layout.mobile-members-open .mobile-drawer-backdrop,
+  .caller-layout.mobile-drawer-open .mobile-drawer-backdrop,
+  .caller-layout.mobile-members-open .mobile-drawer-backdrop {
     display: block !important;
   }
 
@@ -2445,7 +2451,8 @@ body {
     pointer-events: auto !important;
   }
 
-  .discord-layout.mobile-members-open .members-sidebar {
+  .discord-layout.mobile-members-open .members-sidebar,
+  .caller-layout.mobile-members-open .members-sidebar {
     transform: translateX(0) !important;
   }
 

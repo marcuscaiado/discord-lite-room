@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <!-- Brand Gradient -->
+    <linearGradient id="caller-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366F1"/>
+      <stop offset="45%" stop-color="#4F46E5"/>
+      <stop offset="100%" stop-color="#3730A3"/>
+    </linearGradient>
+
+    <!-- Gloss Highlight -->
+    <linearGradient id="caller-highlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Drop Shadow for Small Icons -->
+    <filter id="caller-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#1E1B4B" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle App Badge -->
+  <rect width="128" height="128" rx="34" fill="url(#caller-bg)"/>
+  <rect width="128" height="128" rx="34" fill="url(#caller-highlight)"/>
+  <rect x="1.5" y="1.5" width="125" height="125" rx="32.5" fill="none" stroke="rgba(255, 255, 255, 0.2)" stroke-width="2.5"/>
+
+  <!-- Communicator Phone + Live Waves -->
+  <g filter="url(#caller-shadow)">
+    <!-- Handset Receiver -->
+    <path d="M 37.8 88.5
+             C 32.5 83.2 28.6 76.5 26.2 68.8
+             C 23.8 61.1 23.1 53.6 24.1 46.2
+             C 24.5 43.1 26.9 40.5 30.0 40.1
+             L 42.1 38.5
+             C 45.4 38.1 48.6 40.0 49.9 43.0
+             L 53.7 52.0
+             C 54.9 54.8 54.2 58.1 52.0 60.1
+             L 47.7 64.0
+             C 50.8 70.0 55.6 74.8 61.6 77.9
+             L 65.5 73.6
+             C 67.5 71.4 70.8 70.7 73.6 71.9
+             L 82.6 75.7
+             C 85.6 77.0 87.5 80.2 87.1 83.5
+             L 85.5 95.6
+             C 85.1 98.7 82.5 101.1 79.4 101.5
+             C 72.0 102.5 64.5 101.8 56.8 99.4
+             C 49.1 97.0 42.4 93.1 37.8 88.5 Z"
+          fill="#FFFFFF"/>
+
+    <!-- Concentric Call Signal Waves (Upper Right) -->
+    <path d="M 72 38 A 20 20 0 0 1 90 56" fill="none" stroke="#FFFFFF" stroke-width="5.5" stroke-linecap="round"/>
+    <path d="M 76 25 A 34 34 0 0 1 103 52" fill="none" stroke="#FFFFFF" stroke-width="5.5" stroke-linecap="round" stroke-opacity="0.85"/>
+    <path d="M 80 12 A 48 48 0 0 1 116 48" fill="none" stroke="#38BDF8" stroke-width="5.5" stroke-linecap="round" stroke-opacity="0.9"/>
+  </g>
+</svg>
