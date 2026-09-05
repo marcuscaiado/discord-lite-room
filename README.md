@@ -1,67 +1,98 @@
-# Call ⚡ - Lightweight WebRTC Voice, Video & Screen Rooms
+# Discord Full Web Edition ⚡
 
-**Call** (formerly Discord Lite) is a fast, lightweight Discord-like web application designed for real-time voice, 1080p 30fps screen transmission, video, dynamic private room isolation, and instant chat.
+A comprehensive, production-ready **Full Discord Web Application** built with Node.js, Express, Socket.io, and WebRTC. Features multi-server navigation, categorized text & voice channels, Direct Messages (DMs) & Friends list, rich markdown chat with reactions and file attachments, soundboard & synthesized Discord chimes, Krisp-style Web Audio DSP noise cancellation, and high-fidelity 1080p 30/60 FPS screen transmission.
 
-## Key Features
-- **Instant Private Rooms**: Anyone can create an isolated room on the fly by appending `?room=roomname` (e.g., `?room=cs2`, `?room=vip`)
-- **1080p @ 30 FPS Screen Transmission**: WebRTC mesh with bitrate optimization and live stream auto-focus
-- **Zero-Reload Dynamic Streaming**: Incoming screen shares and camera toggles display instantly without requiring page refreshes
-- **Auto-Reconnection**: Reconnects to the room seamlessly after network blips or server restarts
-- **Window Modes**: OS Fullscreen, In-Window Borderless Maximize, and Dynamic Stream Pinning
-- **Individual Audio Controls**: Per-user volume sliders and mute controls
-- **Real-Time Text Chat**: Synchronized via Socket.io
+---
 
-## Tech Stack
-- **Backend**: Node.js + Express + Socket.io
-- **Frontend**: HTML5, Vanilla CSS3 (Discord Dark Theme), JavaScript (ES6+)
-- **Media**: WebRTC (Google Public STUN)
+## 🌟 Key Features
 
-## Quick Start (Local / LAN Only)
+### 🏰 Multi-Server & Guild Sidebar (72px)
+- **Discord Home Button**: Instant switch between servers and Direct Messages / Friends list.
+- **Preloaded & Custom Servers**:
+  - *⚡ DosCria Hub* (Community, Clips, Rules, 1080p Lounge, Late Night Radio)
+  - *🎮 Gaming HQ* (LFG Party, CS2 Comp, Valorant Ranked, Chill Duo)
+  - *💻 Dev & Tech* (Pair Programming, Showcase, Tech Talk)
+  - *🎵 Music & Chill* (Lofi 24/7, Track Recommendations)
+- **Create Server Modal**: Add custom servers on the fly with custom names and icons.
+- **Server Discovery**: Explore discoverable communities.
+
+### 📁 Channel Categories & Nested Voice Navigation (240px)
+- **Categorized Channels**: Collapsible `TEXT CHANNELS` and `VOICE & STREAMS`.
+- **Nested Voice Participants**: Displays connected users, avatars, and speaking status directly nested inside each voice channel item, matching Discord Desktop.
+- **Docked Voice Status Card**: Real-time `RTC Connected`, ping indicator (18ms), connected room name, and one-click Disconnect button with authentic Discord leave chime.
+- **User Footer Dock**: Live status indicator (Online, Idle, DND, Offline), username, tag (`#0001`), mute mic, deafen sound, and user settings gear.
+
+### 💬 Direct Messages (DMs) & Friends System
+- **Friends Hub**: Filter friends by *Online*, *All*, *Pending*, *Blocked*, plus *Add Friend*.
+- **1-on-1 Direct Chat & Calls**: Send private messages or start direct 1-on-1 audio/video calls with custom ringtone.
+- **Active Now Panel**: See what friends and bots are playing or listening to.
+
+### 📝 Rich Text Chat, Markdown & Reactions
+- **Full Markdown Support**: `**bold**`, `*italic*`, `~~strike~~`, `` `code` ``, ```` ```code blocks``` ````, `> quotes`, `@mentions`.
+- **Reactions System**: Add reactions (👍, ❤️, 🔥, 😂, 🚀, 🎮, ⚡, 🎉) with real-time synchronized user counters.
+- **File & Image Attachments**: Drag-and-drop or upload images with instant inline previews.
+- **Typing Indicator**: Synchronized real-time "*User is typing...*" bar.
+- **Message Quoting / Replying**: Click reply on any message to reference it with an active reply banner.
+
+### 🔊 Discord Soundboard & Synthesized Audio FX
+- **Synthesized Web Audio API FX** (zero external assets needed):
+  - Voice Connect chime (ascending two-tone chime)
+  - Voice Leave chime (descending two-tone chime)
+  - Mute & Unmute clicks
+  - Deafen & Undeafen tones
+  - Incoming Call Ringtone
+  - Discord Message Ping
+- **Interactive Soundboard**: Broadcasts Airhorn, Quack, Ba-dum-tss, GG, and Tada sounds to all server participants.
+
+### 🎥 WebRTC 1080p 30/60 FPS Screen & Voice Streaming
+- **Krisp-Style Web Audio DSP**:
+  - High-pass filter (90Hz) cuts desk rumble & mechanical keyboard bass.
+  - Low-pass filter (7200Hz) cuts electronic hiss and white noise.
+  - Peaking notch filter (3200Hz) dampens keyboard click clatter.
+  - Dynamics compressor normalizes speech.
+  - Smart Noise Gate (VAD) opens only when speaking.
+- **High-Bitrate Screen Sharing**: Presets for 720p, 1080p, and Source at 30 FPS or 60 FPS.
+- **Window Modes**: OS Fullscreen, In-Window Borderless Maximize, and Dynamic Stream Pinning.
+
+### ⚙️ Full Discord Settings Modal & Themes
+- **My Account**: Customize display name, avatar emoji, and custom status text.
+- **Theme Switcher**:
+  - 🌙 **Dark (Default)**: Classic Discord dark palette (`#313338`, `#2b2d31`, `#1e1f22`).
+  - 🖤 **Midnight (AMOLED Black)**: Pure black `#000000` for OLED displays.
+  - ☀️ **Light**: Clean Discord light theme.
+- **Voice & Video Settings**: Live microphone VU meter for testing voice sensitivity and Krisp noise cancellation toggle.
+
+---
+
+## 🚀 Quick Start (Running Live)
 
 ```bash
 # Install dependencies
 npm install
 
-# Start server
+# Start live server
 node server.js
 ```
-The server will run locally at `http://localhost:3000`.
 
-> **⚠️ Note for Localhost:** `http://localhost:3000` only works on your own computer or devices on the same home Wi-Fi/LAN. Web browsers will also block microphone/screen sharing over HTTP across different networks. To share with friends over the internet, follow the steps below.
+The server runs live at:
+- **Local:** `http://localhost:3000`
+- **Network (LAN):** `http://0.0.0.0:3000` (accessible across your Wi-Fi by replacing `0.0.0.0` with your machine's local IP address, e.g. `http://192.168.1.50:3000`).
 
 ---
 
-## 🌐 How to Make It Public Online for Friends (100% Free)
+## 🌐 Free 24/7 Cloud Deployment (Render / Railway)
 
-Choose one of the two options below:
-
-### Option A: Free 24/7 Cloud Hosting (Recommended — Permanent Link)
-Deploy directly to the cloud so the link stays online 24/7 even when your PC is turned off:
-
-1. Create a free account on **[Render.com](https://render.com)**.
-2. Click **New +** ➔ **Web Service**.
-3. Connect your GitHub repository (`discord-lite-room`).
-4. Set the following:
+1. Fork or push to your GitHub repository:
+   ```bash
+   git add .
+   git commit -m "feat: 🚀 Full Discord Web Edition with multi-servers, DMs, 1080p screen share, and Krisp DSP"
+   git push origin master
+   ```
+2. Go to **[Render.com](https://render.com)** and create a new **Web Service**.
+3. Select your repository `discord-lite-room`.
+4. Configure:
    - **Environment:** `Node`
    - **Build Command:** `npm install`
    - **Start Command:** `node server.js`
    - **Plan:** `Free`
-5. Click **Deploy**. Render gives you a permanent, secure HTTPS link (e.g. `https://doscria-room.onrender.com`).
-6. Send the link to your friends!
-
----
-
-### Option B: Instant Public Link from Your PC (No Signups)
-If you are running the server on your computer and want an instant public HTTPS link for your friends:
-
-1. Start the server:
-   ```bash
-   node server.js
-   ```
-2. In a second terminal window, run:
-   ```bash
-   npx --yes cloudflared tunnel --url http://localhost:3000
-   ```
-3. Cloudflare will output a public `https://...trycloudflare.com` link.
-4. Send that link to your friends. *(Keeps running as long as your terminal remains open).*
-
+5. Click **Deploy Web Service**. You will receive a permanent HTTPS link (e.g., `https://discord-full.onrender.com`) that works anywhere in the world!
