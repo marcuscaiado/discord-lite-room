@@ -462,42 +462,45 @@ body {
 }
 
 /* Voice Status Dock */
+/* Voice Status Dock (Matching Desktop Discord Exactly) */
 .voice-status-dock {
   background-color: var(--bg-tertiary);
-  padding: 10px 14px;
+  padding: 8px 10px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.voice-status-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-top: 1px solid rgba(0, 0, 0, 0.2);
+  width: 100%;
+}
+
+.voice-status-info {
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  max-width: 170px;
+}
+
+.voice-status-info:hover .voice-channel-name {
+  color: var(--text-header);
 }
 
 .voice-rtc-line {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--success);
 }
 
-.rtc-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--success);
-  animation: pulse-dot 1.5s infinite;
-}
-
-@keyframes pulse-dot {
-  0% { opacity: 0.6; }
-  50% { opacity: 1; }
-  100% { opacity: 0.6; }
-}
-
-.rtc-ping {
-  font-size: 10px;
-  color: var(--text-muted);
-  font-weight: 500;
+.rtc-signal-icon {
+  color: var(--success);
 }
 
 .voice-channel-name {
@@ -506,8 +509,14 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 140px;
   margin-top: 2px;
+  transition: color 0.15s;
+}
+
+.voice-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .voice-disconnect-btn {
@@ -525,6 +534,54 @@ body {
 
 .voice-disconnect-btn:hover {
   background-color: rgba(242, 63, 67, 0.15);
+}
+
+/* 4 Control Buttons in Row */
+.voice-dock-controls {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  width: 100%;
+}
+
+.voice-dock-btn {
+  height: 34px;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  color: var(--text-normal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.voice-dock-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-header);
+}
+
+.voice-dock-btn.active,
+.voice-dock-btn.highlight {
+  background-color: var(--brand);
+  color: #ffffff;
+}
+
+.voice-dock-btn.highlight-stream {
+  color: var(--text-header);
+}
+
+.voice-dock-btn.streaming {
+  background-color: var(--danger) !important;
+  color: #ffffff !important;
+  animation: pulse-stream 2s infinite;
+}
+
+@keyframes pulse-stream {
+  0% { box-shadow: 0 0 0 0 rgba(242, 63, 67, 0.7); }
+  70% { box-shadow: 0 0 0 6px rgba(242, 63, 67, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(242, 63, 67, 0); }
 }
 
 /* User Profile Dock (Bottom Left) */

@@ -104,6 +104,12 @@ const onlineFriendsCount = document.getElementById('online-friends-count');
 const voiceStatusDock = document.getElementById('voice-status-dock');
 const connectedVoiceName = document.getElementById('connected-voice-name');
 const btnVoiceDisconnect = document.getElementById('btn-voice-disconnect');
+const btnDockVoiceInfo = document.getElementById('btn-dock-voice-info');
+const dockBtnCam = document.getElementById('dock-btn-cam');
+const dockBtnScreen = document.getElementById('dock-btn-screen');
+const dockBtnStage = document.getElementById('dock-btn-stage');
+const dockBtnSoundboard = document.getElementById('dock-btn-soundboard');
+const btnStageChat = document.getElementById('btn-stage-chat');
 
 const selfAvatar = document.getElementById('self-avatar');
 const selfUsername = document.getElementById('self-username');
@@ -936,6 +942,9 @@ function switchView(viewName) {
   } else if (viewName === 'friends') {
     viewFriends.classList.add('active');
   }
+
+  btnToggleVoiceStage.classList.toggle('active', viewName === 'stage');
+  if (dockBtnStage) dockBtnStage.classList.toggle('active', viewName === 'stage');
 }
 
 // --------------------------------------------------------------------------
@@ -944,18 +953,53 @@ function switchView(viewName) {
 btnToggleVoiceStage.addEventListener('click', () => {
   if (activeView === 'stage') {
     switchView('chat');
-    btnToggleVoiceStage.classList.remove('active');
   } else {
     switchView('stage');
-    btnToggleVoiceStage.classList.add('active');
   }
 });
+
+if (dockBtnStage) {
+  dockBtnStage.addEventListener('click', () => {
+    if (activeView === 'stage') {
+      switchView('chat');
+    } else {
+      switchView('stage');
+    }
+  });
+}
+
+if (btnDockVoiceInfo) {
+  btnDockVoiceInfo.addEventListener('click', () => switchView('stage'));
+}
+
+if (dockBtnCam) {
+  dockBtnCam.addEventListener('click', () => btnCam.click());
+}
+
+if (dockBtnScreen) {
+  dockBtnScreen.addEventListener('click', () => {
+    btnScreen.click();
+    if (!isScreenSharing) {
+      switchView('stage');
+    }
+  });
+}
+
+if (dockBtnSoundboard) {
+  dockBtnSoundboard.addEventListener('click', (e) => {
+    e.stopPropagation();
+    soundboardPopover.classList.toggle('hidden');
+  });
+}
+
+if (btnStageChat) {
+  btnStageChat.addEventListener('click', () => switchView('chat'));
+}
 
 async function connectVoiceChannel(channelId) {
   if (currentVoiceChannelId === channelId) {
     // If already connected, simply toggle stage view
     switchView('stage');
-    btnToggleVoiceStage.classList.add('active');
     return;
   }
 
@@ -983,7 +1027,6 @@ async function connectVoiceChannel(channelId) {
   // Add local video tile
   addLocalVideoTile();
   switchView('stage');
-  btnToggleVoiceStage.classList.add('active');
 }
 
 btnVoiceDisconnect.addEventListener('click', disconnectVoice);
@@ -1009,6 +1052,9 @@ function disconnectVoice() {
   videoGrid.innerHTML = '';
   voiceStatusDock.classList.add('hidden');
   btnToggleVoiceStage.classList.add('hidden');
+  if (dockBtnScreen) dockBtnScreen.classList.remove('streaming');
+  if (dockBtnCam) dockBtnCam.classList.remove('active');
+  if (dockBtnStage) dockBtnStage.classList.remove('active');
 
   playDiscordSound('discord-leave');
   showToast('🔇 Disconnected from voice channel.');
@@ -1522,6 +1568,7 @@ btnCam.addEventListener('click', async () => {
       isCameraOn = true;
       btnCam.classList.add('highlight');
       btnCam.querySelector('.btn-text').textContent = 'Stop Cam';
+      if (dockBtnCam) dockBtnCam.classList.add('active');
       socket.emit('media-state-change', { isCameraOn: true });
       showToast('📹 Camera Turned On');
     } catch (e) {
@@ -1551,6 +1598,7 @@ btnCam.addEventListener('click', async () => {
     isCameraOn = false;
     btnCam.classList.remove('highlight');
     btnCam.querySelector('.btn-text').textContent = 'Camera';
+    if (dockBtnCam) dockBtnCam.classList.remove('active');
     socket.emit('media-state-change', { isCameraOn: false });
     showToast('📹 Camera Turned Off');
   }
@@ -1610,6 +1658,7 @@ btnScreen.addEventListener('click', async () => {
       isScreenSharing = true;
       btnScreen.classList.add('danger');
       btnScreen.querySelector('.btn-text').textContent = 'Stop Sharing';
+      if (dockBtnScreen) dockBtnScreen.classList.add('streaming');
       socket.emit('stream-started', { resolution: streamResolution, fps: streamFps, hasAudio: !!screenAudioTrack });
       socket.emit('media-state-change', { isScreenSharing: true });
       showToast(screenAudioTrack ? '📺 1080p Stream Started (with Tab Audio 🔊)' : '📺 1080p Stream Started');
@@ -1654,6 +1703,7 @@ function stopScreenShare() {
   isScreenSharing = false;
   btnScreen.classList.remove('danger');
   btnScreen.querySelector('.btn-text').textContent = 'Share Screen';
+  if (dockBtnScreen) dockBtnScreen.classList.remove('streaming');
   socket.emit('stream-stopped');
   socket.emit('media-state-change', { isScreenSharing: false });
   showToast('📺 Screen sharing stopped.');
