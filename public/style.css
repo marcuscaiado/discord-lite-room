@@ -1128,10 +1128,49 @@ body {
   transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
 }
 
+.tile-avatar-center {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.tile-avatar-circle {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background-color: var(--brand);
+  font-size: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.video-tile.speaking .tile-avatar-circle {
+  box-shadow: 0 0 0 4px var(--success);
+  transform: scale(1.06);
+}
+
 .video-tile video {
+  position: relative;
+  z-index: 2;
   width: 100%;
   height: 100%;
   object-fit: contain;
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.video-tile.has-video video {
+  opacity: 1;
 }
 
 .video-tile.speaking {

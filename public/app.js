@@ -7,8 +7,12 @@ const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' }
-  ]
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:global.stun.twilio.com:3478' }
+  ],
+  iceCandidatePoolSize: 10
 };
 
 const socket = io();
@@ -357,71 +361,110 @@ function showToast(text) {
 }
 
 // --------------------------------------------------------------------------
-// Audio DSP (Krisp Noise Cancellation & VAD)
+// Audio Engine (AEC, AGC, VU Meter, Dedicated Audio Playback & Unlocking)
 // --------------------------------------------------------------------------
+function unlockAllAudio() {
+  document.querySelectorAll('audio[data-peer-audio]').forEach(el => {
+    if (el.paused) {
+      el.play().then(() => {
+        console.log('[Audio Playback] Unlocked peer audio:', el.id);
+      }).catch(err => {
+        console.warn('[Audio Playback] Play pending gesture:', err);
+      });
+    }
+  });
+  if (audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
+}
+
+// Ensure every single page interaction unlocks Web Audio & peer playback
+['click', 'touchstart', 'keydown'].forEach(evt => {
+  window.addEventListener(evt, unlockAllAudio, { passive: true });
+});
+
+async function ensureLocalMic() {
+  if (localAudioStream && localAudioStream.getAudioTracks().length > 0 && localAudioStream.getAudioTracks()[0].readyState === 'live') {
+    const track = localAudioStream.getAudioTracks()[0];
+    track.enabled = !isMuted;
+    return localAudioStream;
+  }
+
+  try {
+    const rawStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1
+      },
+      video: false
+    });
+    localAudioStream = rawStream;
+    const audioTrack = rawStream.getAudioTracks()[0];
+    if (audioTrack) {
+      audioTrack.enabled = !isMuted;
+    }
+
+    setupAudioDSP(rawStream);
+
+    // Update tracks on any active WebRTC peer connections
+    peers.forEach(async (pc, targetId) => {
+      const senders = pc.getSenders();
+      const audioSender = senders.find(s => s.track && s.track.kind === 'audio') ||
+                          senders.find(s => !s.track);
+      if (audioSender && audioTrack) {
+        try {
+          await audioSender.replaceTrack(audioTrack);
+        } catch (e) {
+          console.warn('replaceTrack audio error:', e);
+        }
+      } else if (audioTrack) {
+        try {
+          pc.addTrack(audioTrack, rawStream);
+        } catch (e) {
+          console.warn('addTrack audio error:', e);
+        }
+      }
+    });
+
+    return localAudioStream;
+  } catch (err) {
+    console.warn('Microphone permission or hardware error:', err);
+    showToast('⚠️ Could not access mic. Please grant mic permission in browser!');
+    if (!localAudioStream) localAudioStream = new MediaStream();
+    return null;
+  }
+}
+
 function setupAudioDSP(rawStream) {
   try {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) return rawStream;
 
-    audioCtx = new AudioContextClass();
+    if (!audioCtx || audioCtx.state === 'closed') {
+      audioCtx = new AudioContextClass();
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+    }
+
+    if (micSourceNode) {
+      try { micSourceNode.disconnect(); } catch (e) {}
+    }
     micSourceNode = audioCtx.createMediaStreamSource(rawStream);
 
-    // 1. High-pass filter: Cuts desk rumble (< 90Hz)
-    const highPass = audioCtx.createBiquadFilter();
-    highPass.type = 'highpass';
-    highPass.frequency.value = 90;
-    highPass.Q.value = 0.7;
-
-    // 2. Low-pass filter: Cuts electronic hiss (> 7200Hz)
-    const lowPass = audioCtx.createBiquadFilter();
-    lowPass.type = 'lowpass';
-    lowPass.frequency.value = 7200;
-    lowPass.Q.value = 0.7;
-
-    // 3. Peaking notch filter: Softens mechanical keyboard switch clatter (~3200Hz)
-    const keyFilter = audioCtx.createBiquadFilter();
-    keyFilter.type = 'peaking';
-    keyFilter.frequency.value = 3200;
-    keyFilter.Q.value = 1.3;
-    keyFilter.gain.value = -6.0;
-
-    // 4. Dynamics compressor: Normalizes speech volume
-    const compressor = audioCtx.createDynamicsCompressor();
-    compressor.threshold.value = -24;
-    compressor.knee.value = 25;
-    compressor.ratio.value = 10;
-    compressor.attack.value = 0.003;
-    compressor.release.value = 0.25;
-
-    // 5. Smart Noise Gate (VAD) Gain Node
-    noiseGateGain = audioCtx.createGain();
-    noiseGateGain.gain.setValueAtTime(1, audioCtx.currentTime);
-
-    // 6. Analyser to measure RMS speech volume & power VU meter
+    // RMS Analyser for settings VU meter & speaking ring (does NOT mute outgoing audio!)
     noiseAnalyser = audioCtx.createAnalyser();
     noiseAnalyser.fftSize = 512;
+    micSourceNode.connect(noiseAnalyser);
 
-    micSourceNode.connect(highPass);
-    highPass.connect(lowPass);
-    lowPass.connect(keyFilter);
-    keyFilter.connect(compressor);
-    compressor.connect(noiseGateGain);
-    compressor.connect(noiseAnalyser);
-
-    const destination = audioCtx.createMediaStreamDestination();
-    noiseGateGain.connect(destination);
-
-    // Continuous VAD noise gate monitor & VU meter updater
     const sampleBuffer = new Float32Array(noiseAnalyser.fftSize);
     let wasSpeaking = false;
 
     if (gateInterval) clearInterval(gateInterval);
     gateInterval = setInterval(() => {
-      if (!isKrispActive || !noiseAnalyser) {
-        if (noiseGateGain) noiseGateGain.gain.setValueAtTime(1, audioCtx.currentTime);
-        return;
-      }
+      if (!noiseAnalyser) return;
 
       noiseAnalyser.getFloatTimeDomainData(sampleBuffer);
       let sumSquares = 0;
@@ -432,18 +475,15 @@ function setupAudioDSP(rawStream) {
 
       // Update VU meter fill in Settings
       if (vuFill) {
-        const percent = Math.min(100, Math.round(rms * 450));
+        const percent = Math.min(100, Math.round(rms * 600));
         vuFill.style.width = percent + '%';
       }
 
       const now = Date.now();
-      const isVoiceDetected = rms >= GATE_THRESHOLD;
+      const isVoiceDetected = rms >= 0.007;
 
       if (isVoiceDetected) {
         lastVoiceTime = now;
-        noiseGateGain.gain.setTargetAtTime(1, audioCtx.currentTime, 0.008);
-      } else if (now - lastVoiceTime > GATE_HANGOVER_MS) {
-        noiseGateGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.035);
       }
 
       const isSpeakingNow = isVoiceDetected || (now - lastVoiceTime <= GATE_HANGOVER_MS);
@@ -453,7 +493,7 @@ function setupAudioDSP(rawStream) {
       }
     }, 45);
 
-    return destination.stream;
+    return rawStream;
   } catch (e) {
     console.error('Audio DSP initialization error:', e);
     return rawStream;
@@ -473,9 +513,56 @@ function handleSpeakingState(isSpeaking) {
   socket.emit('user-speaking', { isSpeaking });
 }
 
+// Dedicated Remote Audio Playback Engine (Unbroken background sound across all views)
+function attachRemoteAudio(targetId, track, stream) {
+  let audioEl = document.getElementById(`audio-peer-${targetId}`);
+  if (!audioEl) {
+    audioEl = document.createElement('audio');
+    audioEl.id = `audio-peer-${targetId}`;
+    audioEl.autoplay = true;
+    audioEl.playsInline = true;
+    audioEl.setAttribute('data-peer-audio', targetId);
+    audioEl.style.position = 'fixed';
+    audioEl.style.pointerEvents = 'none';
+    audioEl.style.opacity = '0';
+    audioEl.style.width = '1px';
+    audioEl.style.height = '1px';
+    audioEl.style.bottom = '0';
+    audioEl.style.right = '0';
+    document.body.appendChild(audioEl);
+  }
+
+  audioEl.muted = isDeafened;
+  audioEl.volume = soundVolume;
+
+  const audioStream = (stream && stream.getAudioTracks().length > 0) ? stream : new MediaStream([track]);
+  if (audioEl.srcObject !== audioStream) {
+    audioEl.srcObject = audioStream;
+  }
+
+  userAudioElements.set(targetId, audioEl);
+
+  const playPromise = audioEl.play();
+  if (playPromise !== undefined) {
+    playPromise.then(() => {
+      console.log(`[Audio Playback] Streaming remote voice from ${targetId} at volume ${Math.round(soundVolume * 100)}%`);
+    }).catch(err => {
+      console.warn(`[Audio Playback] Autoplay waiting for user gesture for ${targetId}:`, err);
+    });
+  }
+}
+
 // --------------------------------------------------------------------------
 // Join Flow
 // --------------------------------------------------------------------------
+const savedName = localStorage.getItem('discord-username');
+const urlName = new URLSearchParams(window.location.search).get('name');
+if (urlName) {
+  usernameInput.value = urlName;
+} else if (savedName) {
+  usernameInput.value = savedName;
+}
+
 avatarChoices.forEach(btn => {
   btn.addEventListener('click', () => {
     avatarChoices.forEach(b => b.classList.remove('active'));
@@ -494,19 +581,13 @@ async function joinDiscord() {
   if (!name) return;
 
   const customStatus = customStatusInput.value.trim();
+  localStorage.setItem('discord-username', name);
   joinModal.classList.add('hidden');
 
-  // Acquire local audio stream
-  try {
-    const rawStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      video: false
-    });
-    localAudioStream = setupAudioDSP(rawStream);
-  } catch (err) {
-    console.warn('Microphone access denied or unavailable:', err);
-    localAudioStream = new MediaStream();
-  }
+  unlockAllAudio();
+
+  // Acquire local microphone stream with high quality AEC/AGC
+  await ensureLocalMic();
 
   // Connect user to server
   socket.emit('join-discord', {
@@ -855,6 +936,9 @@ async function connectVoiceChannel(channelId) {
     return;
   }
 
+  unlockAllAudio();
+  await ensureLocalMic();
+
   currentVoiceChannelId = channelId;
   const srv = servers.find(s => s.id === currentServerId);
   const vChan = srv?.categories.flatMap(c => c.channels).find(ch => ch.id === channelId);
@@ -896,6 +980,8 @@ function disconnectVoice() {
   remoteStreams.clear();
   userAudioElements.clear();
 
+  document.querySelectorAll('audio[data-peer-audio]').forEach(el => el.remove());
+
   // Reset video grid
   videoGrid.innerHTML = '';
   voiceStatusDock.classList.add('hidden');
@@ -907,18 +993,84 @@ function disconnectVoice() {
   switchView('chat');
 }
 
+// --------------------------------------------------------------------------
+// WebRTC Zero-Reload Dynamic Engine & Signaling
+// --------------------------------------------------------------------------
+const pendingCandidates = new Map(); // targetId -> [candidate]
+
+async function flushPendingCandidates(targetId) {
+  const pc = peers.get(targetId);
+  const list = pendingCandidates.get(targetId);
+  if (pc && pc.remoteDescription && list && list.length > 0) {
+    for (const cand of list) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(cand));
+      } catch (e) {
+        console.warn('Flush ICE candidate error:', e);
+      }
+    }
+    pendingCandidates.delete(targetId);
+  }
+}
+
+// Live Dynamic Remote Stream Tile Updater (Zero-Reload without page refresh)
+function refreshRemoteStreamTile(socketId) {
+  const stream = remoteStreams.get(socketId);
+  const user = allUsers.get(socketId);
+  const userName = user ? user.username : 'Friend';
+  const isScreen = user ? (user.isScreenSharing || false) : false;
+
+  let tile = document.getElementById(`tile-${socketId}`);
+  if (!tile) {
+    tile = createVideoTile(`tile-${socketId}`, userName, stream, true, isScreen, socketId);
+    videoGrid.appendChild(tile);
+  }
+
+  const video = tile.querySelector('video');
+  if (video && stream) {
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
+    }
+    video.muted = true; // Video tile is muted; dedicated <audio> handles playback reliably!
+    const hasVideo = stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled;
+    tile.classList.toggle('has-video', hasVideo);
+    video.play().catch(e => console.warn('Autoplay video note:', e));
+  }
+
+  // Ensure remote audio is routed to dedicated unmuted player
+  if (stream && stream.getAudioTracks().length > 0) {
+    attachRemoteAudio(socketId, stream.getAudioTracks()[0], stream);
+  }
+
+  tile.classList.toggle('screen-tile', isScreen);
+  const overlaySpan = tile.querySelector('.tile-overlay span');
+  if (overlaySpan) {
+    overlaySpan.textContent = isScreen ? `📺 ${userName} (Stream)` : userName;
+  }
+}
+
 // Socket Voice Handlers
 socket.on('voice-channel-joined', async ({ channelId, participants }) => {
-  // Initiate peer connections to existing participants
+  await ensureLocalMic();
+  // Initiate peer connections to all existing participants in room
   for (const p of participants) {
     await createPeerConnection(p.id, true);
+    if (p.isScreenSharing) {
+      refreshRemoteStreamTile(p.id);
+    }
   }
 });
 
 socket.on('voice-user-joined', async ({ channelId, user }) => {
+  allUsers.set(user.id, user);
   playDiscordSound('discord-join');
   showToast(`👤 ${user.username} joined voice.`);
-  await createPeerConnection(user.id, false);
+
+  await ensureLocalMic();
+  if (!peers.has(user.id)) {
+    await createPeerConnection(user.id, false);
+  }
+  refreshRemoteStreamTile(user.id);
 });
 
 socket.on('voice-user-left', ({ userId, username }) => {
@@ -932,26 +1084,29 @@ socket.on('voice-membership-updated', ({ channelId, members }) => {
   renderVoiceNestedMembers();
 });
 
-// WebRTC Peer Connection Factory
+// WebRTC Peer Connection Factory with sendrecv Transceiver Fallback
 async function createPeerConnection(targetId, isInitiator) {
   if (peers.has(targetId)) return peers.get(targetId);
 
   const pc = new RTCPeerConnection(rtcConfig);
   peers.set(targetId, pc);
 
-  // Add local audio track
-  if (localAudioStream) {
-    localAudioStream.getTracks().forEach(track => pc.addTrack(track, localAudioStream));
+  // 1. Add local audio track or audio transceiver
+  if (localAudioStream && localAudioStream.getAudioTracks()[0]) {
+    const track = localAudioStream.getAudioTracks()[0];
+    track.enabled = !isMuted;
+    pc.addTrack(track, localAudioStream);
+  } else {
+    pc.addTransceiver('audio', { direction: 'sendrecv' });
   }
 
-  // Add local video track if camera is on
-  if (localVideoStream) {
-    localVideoStream.getTracks().forEach(track => pc.addTrack(track, localVideoStream));
-  }
-
-  // Add local screen track if screen is on
-  if (localScreenStream) {
-    localScreenStream.getTracks().forEach(track => pc.addTrack(track, localScreenStream));
+  // 2. Add local video track or video transceiver (Ensures incoming video displays without refresh!)
+  const currentVideoTrack = (localScreenStream && localScreenStream.getVideoTracks()[0]) ||
+                            (localVideoStream && localVideoStream.getVideoTracks()[0]);
+  if (currentVideoTrack) {
+    pc.addTrack(currentVideoTrack, localScreenStream || localVideoStream);
+  } else {
+    pc.addTransceiver('video', { direction: 'sendrecv' });
   }
 
   pc.onicecandidate = (event) => {
@@ -960,26 +1115,60 @@ async function createPeerConnection(targetId, isInitiator) {
     }
   };
 
+  pc.onconnectionstatechange = () => {
+    console.log(`[WebRTC] Peer ${targetId} connection state:`, pc.connectionState);
+    if (pc.connectionState === 'connected') {
+      const u = allUsers.get(targetId);
+      showToast(`🟢 Voice connected with ${u ? u.username : 'friend'}`);
+      unlockAllAudio();
+    } else if (pc.connectionState === 'failed') {
+      console.warn(`[WebRTC] Connection failed with ${targetId}, attempting ICE restart`);
+      if (pc.restartIce) pc.restartIce();
+    }
+  };
+
   pc.ontrack = (event) => {
+    console.log(`[WebRTC] Received remote ${event.track.kind} track from ${targetId}`, event.track.id);
     let stream = remoteStreams.get(targetId);
     if (!stream) {
-      stream = new MediaStream();
+      stream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream();
       remoteStreams.set(targetId, stream);
     }
-    stream.addTrack(event.track);
+    const existing = stream.getTracks().find(t => t.kind === event.track.kind);
+    if (existing && existing.id !== event.track.id) {
+      stream.removeTrack(existing);
+    }
+    if (!stream.getTracks().includes(event.track)) {
+      stream.addTrack(event.track);
+    }
 
-    const user = allUsers.get(targetId);
-    const label = user ? user.username : 'User';
-    addRemoteVideoTile(targetId, label, stream);
+    if (event.track.kind === 'audio') {
+      attachRemoteAudio(targetId, event.track, stream);
+    }
+
+    event.track.onunmute = () => {
+      console.log(`[WebRTC] Remote track onunmute: ${event.track.kind} from ${targetId}`);
+      if (event.track.kind === 'audio') {
+        attachRemoteAudio(targetId, event.track, stream);
+      }
+      refreshRemoteStreamTile(targetId);
+    };
+
+    event.track.onended = () => {
+      console.log(`[WebRTC] Remote track onended: ${event.track.kind} from ${targetId}`);
+      refreshRemoteStreamTile(targetId);
+    };
+
+    refreshRemoteStreamTile(targetId);
   };
 
   if (isInitiator) {
     try {
-      const offer = await pc.createOffer();
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
       await pc.setLocalDescription(offer);
       socket.emit('signal-offer', { targetId, sdp: pc.localDescription });
     } catch (e) {
-      console.error('Error creating offer:', e);
+      console.warn('Initiator offer error:', e);
     }
   }
 
@@ -993,18 +1182,27 @@ function closePeer(userId) {
     peers.delete(userId);
   }
   remoteStreams.delete(userId);
+  pendingCandidates.delete(userId);
+  userAudioElements.delete(userId);
+
+  const audioEl = document.getElementById(`audio-peer-${userId}`);
+  if (audioEl) audioEl.remove();
+
   const tile = document.getElementById(`tile-${userId}`);
   if (tile) tile.remove();
 }
 
-// WebRTC Signaling Handlers
+// WebRTC Signaling Handlers (with pending ICE queue & dynamic tile refresh)
 socket.on('signal-offer', async ({ callerId, sdp }) => {
+  await ensureLocalMic();
   const pc = await createPeerConnection(callerId, false);
   try {
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    await flushPendingCandidates(callerId);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     socket.emit('signal-answer', { targetId: callerId, sdp: pc.localDescription });
+    refreshRemoteStreamTile(callerId);
   } catch (e) {
     console.error('Error handling offer:', e);
   }
@@ -1015,6 +1213,8 @@ socket.on('signal-answer', async ({ callerId, sdp }) => {
   if (pc) {
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      await flushPendingCandidates(callerId);
+      refreshRemoteStreamTile(callerId);
     } catch (e) {
       console.error('Error handling answer:', e);
     }
@@ -1023,12 +1223,41 @@ socket.on('signal-answer', async ({ callerId, sdp }) => {
 
 socket.on('ice-candidate', async ({ senderId, candidate }) => {
   const pc = peers.get(senderId);
-  if (pc && candidate) {
-    try {
-      await pc.addIceCandidate(new RTCIceCandidate(candidate));
-    } catch (e) {
-      console.error('Error adding ICE candidate:', e);
-    }
+  if (!pc || !pc.remoteDescription) {
+    if (!pendingCandidates.has(senderId)) pendingCandidates.set(senderId, []);
+    pendingCandidates.get(senderId).push(candidate);
+    return;
+  }
+  try {
+    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+  } catch (e) {
+    console.error('Error adding ICE candidate:', e);
+  }
+});
+
+// Dynamic stream state handlers that refresh UI instantly without refresh
+socket.on('stream-started', ({ id, username }) => {
+  const u = allUsers.get(id);
+  if (u) u.isScreenSharing = true;
+  if (!peers.has(id)) {
+    createPeerConnection(id, false);
+  }
+  refreshRemoteStreamTile(id);
+  showToast(`📺 ${username} is sharing their screen!`);
+});
+
+socket.on('stream-stopped', ({ id, username }) => {
+  const u = allUsers.get(id);
+  if (u) u.isScreenSharing = false;
+  refreshRemoteStreamTile(id);
+  showToast(`📺 ${username} stopped screen share.`);
+});
+
+socket.on('voice-user-state-updated', (data) => {
+  const u = allUsers.get(data.id);
+  if (u) {
+    Object.assign(u, data);
+    refreshRemoteStreamTile(data.id);
   }
 });
 
@@ -1038,6 +1267,24 @@ socket.on('user-speaking-change', ({ userId, isSpeaking }) => {
 
   const nested = document.querySelector(`.nested-user-row[data-uid="${userId}"] .nested-avatar`);
   if (nested) nested.classList.toggle('speaking', isSpeaking);
+});
+
+// Auto-reconnect on socket disconnect
+socket.on('connect', () => {
+  console.log('[Socket] Connected/Reconnected:', socket.id);
+  if (myUserInfo && myUserInfo.username) {
+    socket.emit('join-discord', {
+      username: myUserInfo.username,
+      customStatus: myUserInfo.customStatus,
+      avatar: myUserInfo.avatar
+    });
+    if (currentVoiceChannelId) {
+      socket.emit('join-voice-channel', {
+        channelId: currentVoiceChannelId,
+        serverId: currentServerId
+      });
+    }
+  }
 });
 
 // --------------------------------------------------------------------------
@@ -1054,7 +1301,7 @@ function addLocalVideoTile() {
 function addRemoteVideoTile(socketId, label, stream) {
   let tile = document.getElementById(`tile-${socketId}`);
   if (!tile) {
-    tile = createVideoTile(`tile-${socketId}`, label, stream, false, false, socketId);
+    tile = createVideoTile(`tile-${socketId}`, label, stream, true, false, socketId);
     videoGrid.appendChild(tile);
   } else {
     const video = tile.querySelector('video');
@@ -1062,40 +1309,42 @@ function addRemoteVideoTile(socketId, label, stream) {
   }
 }
 
-function createVideoTile(id, label, stream, isMutedAudio = false, isScreen = false, socketId = null) {
+function createVideoTile(id, label, stream, isMutedAudio = true, isScreen = false, socketId = null) {
   const tile = document.createElement('div');
   tile.className = `video-tile ${isScreen ? 'screen-tile' : ''}`;
   tile.id = id;
 
-  const video = document.createElement('video');
-  video.autoplay = true;
-  video.playsInline = true;
-  video.muted = isMutedAudio; // Self is always muted to avoid local echo
-  if (stream) video.srcObject = stream;
+  const user = socketId === 'self' ? myUserInfo : allUsers.get(socketId);
+  const avatarChar = user ? (user.avatar || '👑') : '👑';
 
-  if (socketId && socketId !== 'self') {
-    userAudioElements.set(socketId, video);
+  tile.innerHTML = `
+    <div class="tile-avatar-center">
+      <div class="tile-avatar-circle">${avatarChar}</div>
+    </div>
+    <video autoplay playsinline muted></video>
+    <div class="tile-overlay"><span>${label}</span></div>
+    <div class="tile-top-actions">
+      <button class="tile-action-btn btn-max" title="Maximize">🗖 Maximize</button>
+      <button class="tile-action-btn btn-fs" title="Fullscreen">⛶ Fullscreen</button>
+    </div>
+  `;
+
+  const video = tile.querySelector('video');
+  video.muted = true; // Video element in grid is muted to prevent audio collision with dedicated player!
+  if (stream) {
+    video.srcObject = stream;
+    const hasVideo = stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled;
+    tile.classList.toggle('has-video', hasVideo);
   }
 
-  const overlay = document.createElement('div');
-  overlay.className = 'tile-overlay';
-  overlay.innerHTML = `<span>${label}</span>`;
-
-  const topActions = document.createElement('div');
-  topActions.className = 'tile-top-actions';
-
-  const maxBtn = document.createElement('button');
-  maxBtn.className = 'tile-action-btn';
-  maxBtn.innerHTML = '🗖 Maximize';
+  const maxBtn = tile.querySelector('.btn-max');
   maxBtn.onclick = (e) => {
     e.stopPropagation();
     tile.classList.toggle('borderless-maximized');
     maxBtn.innerHTML = tile.classList.contains('borderless-maximized') ? '🗕 Restore' : '🗖 Maximize';
   };
 
-  const fsBtn = document.createElement('button');
-  fsBtn.className = 'tile-action-btn';
-  fsBtn.innerHTML = '⛶ Fullscreen';
+  const fsBtn = tile.querySelector('.btn-fs');
   fsBtn.onclick = (e) => {
     e.stopPropagation();
     if (!document.fullscreenElement) {
@@ -1104,13 +1353,6 @@ function createVideoTile(id, label, stream, isMutedAudio = false, isScreen = fal
       document.exitFullscreen().catch(() => {});
     }
   };
-
-  topActions.appendChild(maxBtn);
-  topActions.appendChild(fsBtn);
-
-  tile.appendChild(video);
-  tile.appendChild(overlay);
-  tile.appendChild(topActions);
 
   return tile;
 }
@@ -1139,8 +1381,8 @@ function toggleMic() {
 
 dockBtnDeafen.addEventListener('click', () => {
   isDeafened = !isDeafened;
-  userAudioElements.forEach(video => {
-    video.muted = isDeafened;
+  document.querySelectorAll('audio[data-peer-audio]').forEach(audioEl => {
+    audioEl.muted = isDeafened;
   });
 
   dockBtnDeafen.classList.toggle('active', isDeafened);
@@ -1169,9 +1411,24 @@ btnCam.addEventListener('click', async () => {
       });
       const videoTrack = localVideoStream.getVideoTracks()[0];
 
-      // Add to peers
-      peers.forEach(pc => {
-        pc.addTrack(videoTrack, localVideoStream);
+      // Replace track on existing video senders or add, then renegotiate
+      peers.forEach(async (pc, targetId) => {
+        const senders = pc.getSenders();
+        const videoSender = senders.find(s => s.track && s.track.kind === 'video') ||
+                            senders.find(s => !s.track);
+        if (videoSender) {
+          await videoSender.replaceTrack(videoTrack);
+        } else {
+          pc.addTrack(videoTrack, localVideoStream);
+        }
+
+        try {
+          const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+          await pc.setLocalDescription(offer);
+          socket.emit('signal-offer', { targetId, sdp: pc.localDescription });
+        } catch (e) {
+          console.warn('Cam renegotiation error:', e);
+        }
       });
 
       // Update local tile
@@ -1181,6 +1438,7 @@ btnCam.addEventListener('click', async () => {
       isCameraOn = true;
       btnCam.classList.add('highlight');
       btnCam.querySelector('.btn-text').textContent = 'Stop Cam';
+      socket.emit('media-state-change', { isCameraOn: true });
       showToast('📹 Camera Turned On');
     } catch (e) {
       showToast('⚠️ Camera access denied');
@@ -1190,9 +1448,26 @@ btnCam.addEventListener('click', async () => {
       localVideoStream.getTracks().forEach(t => t.stop());
       localVideoStream = null;
     }
+    peers.forEach(async (pc, targetId) => {
+      const senders = pc.getSenders();
+      const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+      if (videoSender) {
+        await videoSender.replaceTrack(null);
+      }
+      try {
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+        await pc.setLocalDescription(offer);
+        socket.emit('signal-offer', { targetId, sdp: pc.localDescription });
+      } catch (e) {}
+    });
+
+    const selfVideo = document.querySelector('#tile-self video');
+    if (selfVideo && localAudioStream) selfVideo.srcObject = localAudioStream;
+
     isCameraOn = false;
     btnCam.classList.remove('highlight');
     btnCam.querySelector('.btn-text').textContent = 'Camera';
+    socket.emit('media-state-change', { isCameraOn: false });
     showToast('📹 Camera Turned Off');
   }
 });
@@ -1213,9 +1488,24 @@ btnScreen.addEventListener('click', async () => {
       const screenTrack = localScreenStream.getVideoTracks()[0];
       screenTrack.onended = stopScreenShare;
 
-      // Add track to peers
-      peers.forEach(pc => {
-        pc.addTrack(screenTrack, localScreenStream);
+      // Replace track on existing senders or add, then renegotiate immediately
+      peers.forEach(async (pc, targetId) => {
+        const senders = pc.getSenders();
+        const videoSender = senders.find(s => s.track && s.track.kind === 'video') ||
+                            senders.find(s => !s.track);
+        if (videoSender) {
+          await videoSender.replaceTrack(screenTrack);
+        } else {
+          pc.addTrack(screenTrack, localScreenStream);
+        }
+
+        try {
+          const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+          await pc.setLocalDescription(offer);
+          socket.emit('signal-offer', { targetId, sdp: pc.localDescription });
+        } catch (e) {
+          console.warn('Screen share offer error:', e);
+        }
       });
 
       // Show local screen tile
@@ -1226,6 +1516,7 @@ btnScreen.addEventListener('click', async () => {
       btnScreen.classList.add('danger');
       btnScreen.querySelector('.btn-text').textContent = 'Stop Sharing';
       socket.emit('stream-started', { resolution: streamResolution, fps: streamFps });
+      socket.emit('media-state-change', { isScreenSharing: true });
       showToast('📺 1080p Screen Sharing Started');
     } catch (e) {
       console.warn('Screen share canceled or denied:', e);
@@ -1243,10 +1534,25 @@ function stopScreenShare() {
   const screenTile = document.getElementById('tile-screen-self');
   if (screenTile) screenTile.remove();
 
+  peers.forEach(async (pc, targetId) => {
+    const senders = pc.getSenders();
+    const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+    if (videoSender) {
+      const fallbackTrack = (localVideoStream && localVideoStream.getVideoTracks()[0]) || null;
+      await videoSender.replaceTrack(fallbackTrack);
+    }
+    try {
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+      await pc.setLocalDescription(offer);
+      socket.emit('signal-offer', { targetId, sdp: pc.localDescription });
+    } catch (e) {}
+  });
+
   isScreenSharing = false;
   btnScreen.classList.remove('danger');
   btnScreen.querySelector('.btn-text').textContent = 'Share Screen';
   socket.emit('stream-stopped');
+  socket.emit('media-state-change', { isScreenSharing: false });
   showToast('📺 Screen Sharing Stopped');
 }
 
@@ -1888,6 +2194,9 @@ if (savedTheme) {
 // Sound Settings
 soundVolSlider.addEventListener('input', () => {
   soundVolume = parseFloat(soundVolSlider.value) / 100;
+  document.querySelectorAll('audio[data-peer-audio]').forEach(a => {
+    a.volume = soundVolume;
+  });
 });
 
 document.getElementById('test-join-sound').addEventListener('click', () => playDiscordSound('discord-join'));
